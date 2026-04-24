@@ -106,33 +106,24 @@ export default function ContentAIPro() {
     setOutput("");
 
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-	"x-api-key": process.env.REACT_APP_ANTHROPIC_KEY,
-	"anthropic-version": "2023-06-01",
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [
-            {
-              role: "user",
-              content: activeTool.prompt(platform, tone, keyword),
-            },
-          ],
+          prompt: activeTool.prompt(platform, tone, keyword),
         }),
       });
 
       const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
-      const text = data.content?.map((b) => b.text || "").join("") || "";
+      if (!res.ok) throw new Error(data.error || "Generation failed");
+      const text = data.text || "";
       setOutput(text);
       setHistory((prev) => [
         { tool: activeTool.label, platform, keyword, tone, output: text, time: new Date().toLocaleTimeString() },
         ...prev.slice(0, 9),
       ]);
     } catch (e) {
-      setError("Generation failed. Please try again.");
+      setError(e.message || "Generation failed. Please try again.");
     } finally {
       setLoading(false);
     }
