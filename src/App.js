@@ -71,6 +71,7 @@ export default function ContentAIPro() {
   const [charCount, setCharCount] = useState(0);
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [isLightMode, setIsLightMode] = useState(false);
   const outputRef = useRef(null);
   const [particles, setParticles] = useState([]);
 
@@ -152,6 +153,34 @@ export default function ContentAIPro() {
           --text: #e8e4d9;
           --muted: #6b7280;
           --accent: #3b82f6;
+          --header-bg: rgba(8,10,14,0.8);
+          --sidebar-bg: rgba(14,17,23,0.6);
+          --panel-bg: rgba(14,17,23,0.5);
+          --select-option-bg: #0e1117;
+          --button-text: #080a0e;
+          --mesh-gold: rgba(201,168,76,0.07);
+          --mesh-blue: rgba(59,130,246,0.05);
+          --mesh-soft: rgba(201,168,76,0.03);
+        }
+
+        .app.light {
+          --bg: #f7f4ec;
+          --surface: #fffaf0;
+          --border: #ded2b7;
+          --gold: #9a7322;
+          --gold-light: #7d5d1d;
+          --gold-dim: rgba(154,115,34,0.12);
+          --text: #17140f;
+          --muted: #6f6659;
+          --accent: #2563eb;
+          --header-bg: rgba(247,244,236,0.86);
+          --sidebar-bg: rgba(255,250,240,0.68);
+          --panel-bg: rgba(255,250,240,0.62);
+          --select-option-bg: #fffaf0;
+          --button-text: #fffaf0;
+          --mesh-gold: rgba(154,115,34,0.12);
+          --mesh-blue: rgba(37,99,235,0.07);
+          --mesh-soft: rgba(154,115,34,0.06);
         }
 
         .app {
@@ -166,9 +195,9 @@ export default function ContentAIPro() {
         .bg-mesh {
           position: fixed; inset: 0; pointer-events: none; z-index: 0;
           background: 
-            radial-gradient(ellipse 60% 40% at 20% 20%, rgba(201,168,76,0.07) 0%, transparent 60%),
-            radial-gradient(ellipse 50% 50% at 80% 80%, rgba(59,130,246,0.05) 0%, transparent 60%),
-            radial-gradient(ellipse 40% 60% at 50% 50%, rgba(201,168,76,0.03) 0%, transparent 70%);
+            radial-gradient(ellipse 60% 40% at 20% 20%, var(--mesh-gold) 0%, transparent 60%),
+            radial-gradient(ellipse 50% 50% at 80% 80%, var(--mesh-blue) 0%, transparent 60%),
+            radial-gradient(ellipse 40% 60% at 50% 50%, var(--mesh-soft) 0%, transparent 70%);
         }
 
         .particle {
@@ -204,7 +233,7 @@ export default function ContentAIPro() {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          background: rgba(8,10,14,0.8);
+          background: var(--header-bg);
           backdrop-filter: blur(12px);
           position: sticky; top: 0; z-index: 100;
         }
@@ -255,7 +284,7 @@ export default function ContentAIPro() {
           display: flex; align-items: center; gap: 16px;
         }
 
-        .history-btn {
+        .history-btn, .theme-btn {
           background: transparent;
           border: 1px solid var(--border);
           color: var(--muted);
@@ -267,7 +296,7 @@ export default function ContentAIPro() {
           transition: all 0.2s;
         }
 
-        .history-btn:hover {
+        .history-btn:hover, .theme-btn:hover {
           border-color: var(--gold);
           color: var(--gold);
         }
@@ -276,7 +305,7 @@ export default function ContentAIPro() {
         .sidebar {
           border-right: 1px solid var(--border);
           padding: 24px 16px;
-          background: rgba(14,17,23,0.6);
+          background: var(--sidebar-bg);
           display: flex; flex-direction: column; gap: 4px;
           overflow-y: auto;
         }
@@ -408,7 +437,7 @@ export default function ContentAIPro() {
           transition: border-color 0.2s;
         }
 
-        .select-input option { background: #0e1117; }
+        .select-input option { background: var(--select-option-bg); }
         .select-input:focus { border-color: var(--gold); }
 
         .generate-btn {
@@ -418,7 +447,7 @@ export default function ContentAIPro() {
           border: none;
           border-radius: 12px;
           padding: 16px;
-          color: #080a0e;
+          color: var(--button-text);
           font-size: 15px;
           font-weight: 700;
           font-family: 'DM Sans', sans-serif;
@@ -538,7 +567,7 @@ export default function ContentAIPro() {
         .right-panel {
           border-left: 1px solid var(--border);
           padding: 24px 20px;
-          background: rgba(14,17,23,0.5);
+          background: var(--panel-bg);
           overflow-y: auto;
         }
 
@@ -708,7 +737,7 @@ export default function ContentAIPro() {
         }
       `}</style>
 
-      <div className="app">
+      <div className={`app ${isLightMode ? "light" : ""}`}>
         <div className="bg-mesh" />
         {particles.map((p) => (
           <div
@@ -762,6 +791,13 @@ export default function ContentAIPro() {
             </div>
             <div className="header-badge">✦ Pro Suite</div>
             <div className="header-right">
+              <button
+                className="theme-btn"
+                onClick={() => setIsLightMode((current) => !current)}
+                type="button"
+              >
+                {isLightMode ? "Dark Mode" : "Light Mode"}
+              </button>
               <button className="history-btn" onClick={() => setShowHistory(true)}>
                 ◈ History ({history.length})
               </button>
