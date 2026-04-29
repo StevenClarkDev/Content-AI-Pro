@@ -27,6 +27,33 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: "Prompt is required." });
   }
 
+  const image = body?.image;
+  const hasImage = image && typeof image.data === "string" && typeof image.mediaType === "string";
+  const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+  if (image && !hasImage) {
+    return res.status(400).json({ error: "Image must include base64 data and mediaType." });
+  }
+  if (hasImage && !allowedImageTypes.has(image.mediaType)) {
+    return res.status(400).json({ error: "Unsupported image type. Use JPEG, PNG, GIF, or WebP." });
+  }
+
+  const content = hasImage
+    ? [
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: image.mediaType,
+            data: image.data,
+          },
+        },
+        {
+          type: "text",
+          text: prompt,
+        },
+      ]
+    : prompt;
+
   try {
     const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -41,7 +68,7 @@ module.exports = async function handler(req, res) {
         messages: [
           {
             role: "user",
-            content: prompt,
+            content,
           },
         ],
       }),

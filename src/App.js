@@ -55,6 +55,16 @@ const TOOLS = [
     prompt: (p, tone, kw) =>
       `Write 3 versions of a ${p} for a professional in the ${kw} industry. Tone: ${tone}. Versions: Short (under 50 words), Medium (100 words), Long (200 words). Each should establish authority, personality, and a clear value proposition.`,
   },
+  {
+    id: "image",
+    icon: "IMG",
+    label: "Image Content",
+    desc: "Content from an uploaded image",
+    platforms: ["Instagram Caption", "Product Post", "Ad Concept", "Blog Intro", "Social Campaign"],
+    acceptsImage: true,
+    prompt: (p, tone, kw) =>
+      `Review the uploaded image and the user's description: "${kw}". Create relevant ${p} content based on what is visible in the image and the description. Tone: ${tone}. Include a polished main caption or copy, 3 alternate hooks, useful visual/posting suggestions, and relevant hashtags or keywords where appropriate. Do not invent details that are not supported by the image or description.`,
+  },
 ];
 
 const TONES = ["Professional", "Conversational", "Bold & Direct", "Luxury/Premium", "Friendly & Warm", "Urgent & Persuasive"];
@@ -72,6 +82,8 @@ export default function ContentAIPro() {
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [isLightMode, setIsLightMode] = useState(false);
+  const [imageData, setImageData] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
   const outputRef = useRef(null);
   const [particles, setParticles] = useState([]);
 
@@ -99,7 +111,11 @@ export default function ContentAIPro() {
 
   const generate = async () => {
     if (!keyword.trim()) {
-      setError("Please enter your niche or topic first.");
+      setError(activeTool.acceptsImage ? "Please add a short image description first." : "Please enter your niche or topic first.");
+      return;
+    }
+    if (activeTool.acceptsImage && !imageData) {
+      setError("Please upload an image first.");
       return;
     }
     setLoading(true);
@@ -112,6 +128,7 @@ export default function ContentAIPro() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: activeTool.prompt(platform, tone, keyword),
+          image: activeTool.acceptsImage ? imageData : null,
         }),
       });
 
@@ -120,7 +137,7 @@ export default function ContentAIPro() {
       const text = data.text || "";
       setOutput(text);
       setHistory((prev) => [
-        { tool: activeTool.label, platform, keyword, tone, output: text, time: new Date().toLocaleTimeString() },
+        { tool: activeTool.label, platform, keyword, tone, output: text, imageName: imageData?.name, time: new Date().toLocaleTimeString() },
         ...prev.slice(0, 9),
       ]);
     } catch (e) {
@@ -128,6 +145,46 @@ export default function ContentAIPro() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleImageUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please upload a valid image file.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Please choose an image under 5MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.split(",")[1];
+      if (!base64) {
+        setError("Could not read that image. Please try another file.");
+        return;
+      }
+
+      setImageData({
+        data: base64,
+        mediaType: file.type,
+        name: file.name,
+      });
+      setImagePreview(result);
+      setError("");
+    };
+    reader.onerror = () => setError("Could not read that image. Please try another file.");
+    reader.readAsDataURL(file);
+  };
+
+  const clearImage = () => {
+    setImageData(null);
+    setImagePreview("");
   };
 
   const copyOutput = () => {
@@ -413,6 +470,91 @@ export default function ContentAIPro() {
 
         .text-input::placeholder { color: var(--muted); }
         .text-input:focus { border-color: var(--gold); }
+        textarea.text-input { resize: vertical; min-height: 96px; line-height: 1.55; }
+
+        .upload-zone {
+          background: var(--surface);
+          border: 1px dashed rgba(201,168,76,0.45);
+          border-radius: 12px;
+          padding: 14px;
+          display: grid;
+          grid-template-columns: 112px 1fr;
+          gap: 14px;
+          align-items: center;
+        }
+
+        .upload-preview {
+          width: 112px;
+          aspect-ratio: 1;
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--muted);
+          font-size: 12px;
+          text-align: center;
+          background: rgba(255,255,255,0.03);
+        }
+
+        .upload-preview img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
+
+        .upload-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        .file-input {
+          width: 100%;
+          color: var(--muted);
+          font-size: 13px;
+          font-family: 'DM Sans', sans-serif;
+        }
+
+        .file-input::file-selector-button {
+          background: var(--gold-dim);
+          border: 1px solid rgba(201,168,76,0.35);
+          border-radius: 8px;
+          color: var(--gold-light);
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-weight: 600;
+          margin-right: 12px;
+          padding: 8px 12px;
+        }
+
+        .image-meta {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .clear-image {
+          background: transparent;
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          color: var(--muted);
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 12px;
+          padding: 5px 10px;
+        }
+
+        .clear-image:hover {
+          border-color: #ef4444;
+          color: #ef4444;
+        }
 
         .grid-2 {
           display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
@@ -734,6 +876,8 @@ export default function ContentAIPro() {
           }
           .right-panel, .sidebar { display: none; }
           .center { padding: 20px; }
+          .upload-zone { grid-template-columns: 1fr; }
+          .upload-preview { width: 100%; max-width: 180px; }
         }
       `}</style>
 
@@ -827,15 +971,53 @@ export default function ContentAIPro() {
             <div className="section-title">{activeTool.label}</div>
             <div className="section-subtitle">{activeTool.desc} — powered by Claude AI</div>
 
+            {activeTool.acceptsImage && (
+              <div className="input-group">
+                <label className="input-label">Upload Image</label>
+                <div className="upload-zone">
+                  <div className="upload-preview">
+                    {imagePreview ? <img src={imagePreview} alt="Uploaded preview" /> : "Image preview"}
+                  </div>
+                  <div className="upload-actions">
+                    <input
+                      className="file-input"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      onChange={handleImageUpload}
+                    />
+                    <div className="image-meta">
+                      <span>{imageData ? imageData.name : "PNG, JPG, WebP or GIF under 5MB"}</span>
+                      {imageData && (
+                        <button className="clear-image" type="button" onClick={clearImage}>
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="input-group">
-              <label className="input-label">Your Niche / Topic / Brand</label>
-              <input
-                className="text-input"
-                placeholder="e.g. fitness coaching, SaaS startup, luxury skincare..."
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && generate()}
-              />
+              <label className="input-label">
+                {activeTool.acceptsImage ? "Image Description / Goal" : "Your Niche / Topic / Brand"}
+              </label>
+              {activeTool.acceptsImage ? (
+                <textarea
+                  className="text-input"
+                  placeholder="e.g. launch caption for this skincare product photo, highlight premium ingredients and a calm self-care mood..."
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                />
+              ) : (
+                <input
+                  className="text-input"
+                  placeholder="e.g. fitness coaching, SaaS startup, luxury skincare..."
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && generate()}
+                />
+              )}
             </div>
 
             <div className="grid-2">
@@ -921,7 +1103,7 @@ export default function ContentAIPro() {
                   <span className="stat-label">Generated</span>
                 </div>
                 <div className="stat-card">
-                  <span className="stat-value">6</span>
+                  <span className="stat-value">{TOOLS.length}</span>
                   <span className="stat-label">Tools</span>
                 </div>
                 <div className="stat-card">
@@ -958,7 +1140,7 @@ export default function ContentAIPro() {
                 <div className="pricing-price">$29<span style={{ fontSize: 14, fontWeight: 400, color: "var(--muted)" }}>/mo</span></div>
                 <div className="pricing-note">Or $49 lifetime access</div>
                 <ul className="feature-list">
-                  {["6 AI Content Tools", "Unlimited Generations", "All Platforms & Tones", "Generation History", "One-click Copy", "Priority Support"].map((f) => (
+                  {["7 AI Content Tools", "Image-to-content Generator", "Unlimited Generations", "All Platforms & Tones", "Generation History", "One-click Copy", "Priority Support"].map((f) => (
                     <li key={f} className="feature-item">
                       <div className="feature-dot" />
                       {f}
