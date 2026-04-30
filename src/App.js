@@ -306,6 +306,24 @@ export default function ContentAIPro() {
           display: flex; align-items: center; justify-content: center;
           font-size: 16px; color: var(--gold);
           position: relative;
+          padding-bottom: 5px;
+        }
+
+        .logo-secret {
+          position: absolute;
+          left: 50%;
+          bottom: 3px;
+          transform: translateX(-50%);
+          z-index: 1;
+          font-family: 'DM Mono', monospace;
+          font-size: 7px;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          line-height: 1;
+          color: var(--gold-light);
+          opacity: 0.88;
+          pointer-events: none;
+          text-shadow: 0 0 7px rgba(201,168,76,0.8);
         }
 
         .logo-mark::after {
@@ -930,7 +948,10 @@ export default function ContentAIPro() {
           {/* Header */}
           <header className="header">
             <div className="logo">
-              <div className="logo-mark">✦</div>
+              <div className="logo-mark">
+                ✦
+                <span className="logo-secret" aria-hidden="true">CCC</span>
+              </div>
               <span className="logo-text">Content<span>AI</span> Pro</span>
             </div>
             <div className="header-badge">✦ Pro Suite</div>
