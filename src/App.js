@@ -297,6 +297,8 @@ export default function ContentAIPro() {
 
         .logo {
           display: flex; align-items: center; gap: 12px;
+          transform: scale(1.25);
+          transform-origin: left center;
         }
 
         .logo-mark {
