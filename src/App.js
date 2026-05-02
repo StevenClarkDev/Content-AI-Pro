@@ -315,15 +315,16 @@ export default function ContentAIPro() {
           bottom: 3px;
           transform: translateX(-50%);
           z-index: 1;
-          font-family: 'DM Mono', monospace;
+          font-family: 'Playfair Display', serif;
           font-size: 7px;
-          font-weight: 700;
-          letter-spacing: 0.02em;
+          font-weight: 900;
+          font-style: italic;
+          letter-spacing: 0.08em;
           line-height: 1;
           color: var(--gold-light);
-          opacity: 0.88;
+          opacity: 0.5;
           pointer-events: none;
-          text-shadow: 0 0 7px rgba(201,168,76,0.8);
+          text-shadow: 0 0 7px rgba(201,168,76,0.75);
         }
 
         .logo-mark::after {
@@ -950,7 +951,7 @@ export default function ContentAIPro() {
             <div className="logo">
               <div className="logo-mark">
                 ✦
-                <span className="logo-secret" aria-hidden="true">Kanz</span>
+                <span className="logo-secret" aria-hidden="true">CCC</span>
               </div>
               <span className="logo-text">Content<span>AI</span> Pro</span>
             </div>
