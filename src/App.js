@@ -950,7 +950,7 @@ export default function ContentAIPro() {
             <div className="logo">
               <div className="logo-mark">
                 ✦
-                <span className="logo-secret" aria-hidden="true">CCC</span>
+                <span className="logo-secret" aria-hidden="true">Kanz</span>
               </div>
               <span className="logo-text">Content<span>AI</span> Pro</span>
             </div>
