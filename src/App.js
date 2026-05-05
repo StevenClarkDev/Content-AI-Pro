@@ -156,8 +156,8 @@ export default function ContentAIPro() {
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setError("Please choose an image under 5MB.");
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Please choose an image under 10MB.");
       return;
     }
 
