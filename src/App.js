@@ -245,7 +245,8 @@ export default function ContentAIPro() {
 
         .header {
           grid-column: 1 / -1;
-          padding: 16px 28px;
+          min-height: 124px;
+          padding: 18px 28px;
           border-bottom: 1px solid var(--border);
           display: flex;
           align-items: center;
@@ -258,12 +259,12 @@ export default function ContentAIPro() {
         .logo {
           display: flex;
           align-items: center;
-          width: 260px;
-          height: 64px;
+          width: 226px;
+          height: 68px;
           background: #f7f4ec;
           border: 1px solid rgba(201,168,76,0.26);
           border-radius: 8px;
-          padding: 6px 10px;
+          padding: 7px 12px;
           box-shadow: 0 10px 30px rgba(0,0,0,0.22);
         }
 
