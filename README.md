@@ -2,6 +2,51 @@
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
+## Android App
+
+This repo includes a Capacitor Android wrapper in `android/`.
+
+Before building the Android app, set `REACT_APP_API_BASE_URL` to the deployed portal URL so native builds can call the hosted `/api/generate` endpoint:
+
+```bash
+REACT_APP_API_BASE_URL=https://your-content-ai-pro.vercel.app
+```
+
+Then sync the React build into Android:
+
+```bash
+npm run android:sync
+```
+
+Open the native project in Android Studio:
+
+```bash
+npm run android:open
+```
+
+From Android Studio, run the app on an emulator/device or create an APK/AAB. Java and Android Studio are required for native Android builds.
+
+## Prompt Session Storage
+
+Prompt generations are stored by the serverless API when `DATABASE_URL` is configured with a Postgres-compatible database such as Neon.
+
+Required backend environment variables:
+
+```bash
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+DATABASE_URL=postgresql://user:password@host/database?sslmode=require
+SESSION_ADMIN_TOKEN=choose_a_long_random_admin_token
+```
+
+The API creates the `prompt_sessions` table automatically on first save. Successful generations from both the web portal and Android app are recorded through `/api/generate`.
+
+Recent sessions can be fetched from:
+
+```bash
+curl -H "Authorization: Bearer $SESSION_ADMIN_TOKEN" \
+  "https://your-content-ai-pro.vercel.app/api/sessions?limit=50"
+```
+
 ## Available Scripts
 
 In the project directory, you can run:

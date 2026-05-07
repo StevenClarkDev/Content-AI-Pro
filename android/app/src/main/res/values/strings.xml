@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Content AI Pro</string>
+    <string name="title_activity_main">Content AI Pro</string>
+    <string name="package_name">com.contentaipro.app</string>
+    <string name="custom_url_scheme">com.contentaipro.app</string>
+</resources>

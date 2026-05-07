@@ -1,6 +1,21 @@
 const MODEL = "claude-sonnet-4-20250514";
+const { savePromptSession } = require("./promptSessions");
+
+function setCorsHeaders(req, res) {
+  const origin = req.headers.origin || "*";
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
 
 module.exports = async function handler(req, res) {
+  setCorsHeaders(req, res);
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
@@ -27,33 +42,6 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: "Prompt is required." });
   }
 
-  const image = body?.image;
-  const hasImage = image && typeof image.data === "string" && typeof image.mediaType === "string";
-  const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
-  if (image && !hasImage) {
-    return res.status(400).json({ error: "Image must include base64 data and mediaType." });
-  }
-  if (hasImage && !allowedImageTypes.has(image.mediaType)) {
-    return res.status(400).json({ error: "Unsupported image type. Use JPEG, PNG, GIF, or WebP." });
-  }
-
-  const content = hasImage
-    ? [
-        {
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: image.mediaType,
-            data: image.data,
-          },
-        },
-        {
-          type: "text",
-          text: prompt,
-        },
-      ]
-    : prompt;
-
   try {
     const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -68,7 +56,7 @@ module.exports = async function handler(req, res) {
         messages: [
           {
             role: "user",
-            content,
+            content: prompt,
           },
         ],
       }),
@@ -82,7 +70,27 @@ module.exports = async function handler(req, res) {
     }
 
     const text = data.content?.map((block) => block.text || "").join("") || "";
-    return res.status(200).json({ text });
+    let session = { stored: false };
+
+    try {
+      session = await savePromptSession({
+        source: typeof body?.source === "string" ? body.source : "portal",
+        tool: typeof body?.tool === "string" ? body.tool : null,
+        platform: typeof body?.platform === "string" ? body.platform : null,
+        tone: typeof body?.tone === "string" ? body.tone : null,
+        keyword: typeof body?.keyword === "string" ? body.keyword : null,
+        prompt,
+        output: text,
+        model: MODEL,
+        ipAddress: req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || null,
+        userAgent: req.headers["user-agent"] || null,
+      });
+    } catch (error) {
+      console.error("Failed to save prompt session", error);
+      session = { stored: false, reason: "Prompt session could not be saved." };
+    }
+
+    return res.status(200).json({ text, session });
   } catch (error) {
     return res.status(500).json({ error: "Generation failed. Please try again." });
   }

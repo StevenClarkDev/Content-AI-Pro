@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 
+const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");
+const APP_SOURCE = window.Capacitor ? "android" : "portal";
+
 const TOOLS = [
   {
     id: "social",
@@ -8,7 +11,7 @@ const TOOLS = [
     desc: "Viral posts for any platform",
     platforms: ["Instagram", "LinkedIn", "Twitter/X", "TikTok", "Facebook"],
     prompt: (p, tone, kw) =>
-      `Write 6 high-performing ${p} posts for a brand in the ${kw} niche. Tone: ${tone}. Include picture text, body, and relevant hashtags. Make them scroll-stopping and platform-native. Format each post clearly labeled Post 1, Post 2, Post 3, Post 4, Post 5, Post 6.`,
+      `Write 6 high-performing ${p} posts for a brand in the ${kw} niche. Tone: ${tone}. Include overlay text, body, and relevant hashtags. Make them scroll-stopping and platform-native. Format each post clearly labeled Post 1, Post 2, Post 3, Post 4, Post 5, Post 6.`,
   },
   {
     id: "email",
@@ -56,14 +59,13 @@ const TOOLS = [
       `Write 3 versions of a ${p} for a professional in the ${kw} industry. Tone: ${tone}. Versions: Short (under 50 words), Medium (100 words), Long (200 words). Each should establish authority, personality, and a clear value proposition.`,
   },
   {
-    id: "image",
-    icon: "IMG",
-    label: "Image Content",
-    desc: "Content from an uploaded image",
-    platforms: ["Instagram Caption", "Product Post", "Ad Concept", "Blog Intro", "Social Campaign"],
-    acceptsImage: true,
+    id: "seo",
+    icon: "SEO",
+    label: "SEO Content",
+    desc: "Search-friendly outlines and copy",
+    platforms: ["Blog Outline", "Meta Title", "Meta Description", "Keyword Brief", "FAQ Section"],
     prompt: (p, tone, kw) =>
-      `Review the uploaded image and the user's description: "${kw}". Create relevant ${p} content based on what is visible in the image and the description. Tone: ${tone}. Include a polished main caption or copy, 3 alternate hooks, useful visual/posting suggestions, and relevant hashtags or keywords where appropriate. Do not invent details that are not supported by the image or description.`,
+      `Create ${p} content for the ${kw} niche. Tone: ${tone}. Make it search-friendly, clear, and useful. Include concise recommendations and practical copy the user can publish or adapt immediately.`,
   },
 ];
 
@@ -82,8 +84,6 @@ export default function ContentAIPro() {
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [isLightMode, setIsLightMode] = useState(false);
-  const [imageData, setImageData] = useState(null);
-  const [imagePreview, setImagePreview] = useState("");
   const outputRef = useRef(null);
   const [particles, setParticles] = useState([]);
 
@@ -111,11 +111,7 @@ export default function ContentAIPro() {
 
   const generate = async () => {
     if (!keyword.trim()) {
-      setError(activeTool.acceptsImage ? "Please add a short image description first." : "Please enter your niche or topic first.");
-      return;
-    }
-    if (activeTool.acceptsImage && !imageData) {
-      setError("Please upload an image first.");
+      setError("Please enter your niche or topic first.");
       return;
     }
     setLoading(true);
@@ -123,12 +119,16 @@ export default function ContentAIPro() {
     setOutput("");
 
     try {
-      const res = await fetch("/api/generate", {
+      const res = await fetch(`${API_BASE_URL}/api/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: activeTool.prompt(platform, tone, keyword),
-          image: activeTool.acceptsImage ? imageData : null,
+          source: APP_SOURCE,
+          tool: activeTool.label,
+          platform,
+          tone,
+          keyword,
         }),
       });
 
@@ -137,7 +137,7 @@ export default function ContentAIPro() {
       const text = data.text || "";
       setOutput(text);
       setHistory((prev) => [
-        { tool: activeTool.label, platform, keyword, tone, output: text, imageName: imageData?.name, time: new Date().toLocaleTimeString() },
+        { tool: activeTool.label, platform, keyword, tone, output: text, time: new Date().toLocaleTimeString() },
         ...prev.slice(0, 9),
       ]);
     } catch (e) {
@@ -145,46 +145,6 @@ export default function ContentAIPro() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleImageUpload = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      setError("Please upload a valid image file.");
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      setError("Please choose an image under 10MB.");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result || "");
-      const base64 = result.split(",")[1];
-      if (!base64) {
-        setError("Could not read that image. Please try another file.");
-        return;
-      }
-
-      setImageData({
-        data: base64,
-        mediaType: file.type,
-        name: file.name,
-      });
-      setImagePreview(result);
-      setError("");
-    };
-    reader.onerror = () => setError("Could not read that image. Please try another file.");
-    reader.readAsDataURL(file);
-  };
-
-  const clearImage = () => {
-    setImageData(null);
-    setImagePreview("");
   };
 
   const copyOutput = () => {
@@ -296,55 +256,21 @@ export default function ContentAIPro() {
         }
 
         .logo {
-          display: flex; align-items: center; gap: 12px;
-          transform: scale(1.25);
-          transform-origin: left center;
+          display: flex;
+          align-items: center;
+          width: 236px;
+          height: 50px;
+          overflow: hidden;
         }
 
-        .logo-mark {
-          width: 36px; height: 36px;
-          border: 1.5px solid var(--gold);
-          border-radius: 8px;
-          display: flex; align-items: center; justify-content: center;
-          font-size: 16px; color: var(--gold);
-          position: relative;
-          padding-bottom: 5px;
+        .logo-img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          object-position: left center;
+          display: block;
+          filter: brightness(1.75) contrast(1.08);
         }
-
-        .logo-secret {
-          position: absolute;
-          left: 50%;
-          bottom: 3px;
-          transform: translateX(-50%);
-          z-index: 1;
-          font-family: 'Playfair Display', serif;
-          font-size: 7px;
-          font-weight: 900;
-          font-style: italic;
-          letter-spacing: 0.08em;
-          line-height: 1;
-          color: var(--gold-light);
-          opacity: 0.5;
-          pointer-events: none;
-          text-shadow: 0 0 7px rgba(201,168,76,0.75);
-        }
-
-        .logo-mark::after {
-          content: '';
-          position: absolute; inset: 3px;
-          border: 1px solid var(--gold);
-          border-radius: 4px;
-          opacity: 0.4;
-        }
-
-        .logo-text {
-          font-family: 'Playfair Display', serif;
-          font-size: 20px; font-weight: 700;
-          letter-spacing: -0.02em;
-          color: var(--text);
-        }
-
-        .logo-text span { color: var(--gold); }
 
         .header-badge {
           background: var(--gold-dim);
@@ -493,90 +419,6 @@ export default function ContentAIPro() {
         .text-input:focus { border-color: var(--gold); }
         textarea.text-input { resize: vertical; min-height: 96px; line-height: 1.55; }
 
-        .upload-zone {
-          background: var(--surface);
-          border: 1px dashed rgba(201,168,76,0.45);
-          border-radius: 12px;
-          padding: 14px;
-          display: grid;
-          grid-template-columns: 112px 1fr;
-          gap: 14px;
-          align-items: center;
-        }
-
-        .upload-preview {
-          width: 112px;
-          aspect-ratio: 1;
-          border: 1px solid var(--border);
-          border-radius: 10px;
-          overflow: hidden;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--muted);
-          font-size: 12px;
-          text-align: center;
-          background: rgba(255,255,255,0.03);
-        }
-
-        .upload-preview img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-          display: block;
-        }
-
-        .upload-actions {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          min-width: 0;
-        }
-
-        .file-input {
-          width: 100%;
-          color: var(--muted);
-          font-size: 13px;
-          font-family: 'DM Sans', sans-serif;
-        }
-
-        .file-input::file-selector-button {
-          background: var(--gold-dim);
-          border: 1px solid rgba(201,168,76,0.35);
-          border-radius: 8px;
-          color: var(--gold-light);
-          cursor: pointer;
-          font-family: 'DM Sans', sans-serif;
-          font-weight: 600;
-          margin-right: 12px;
-          padding: 8px 12px;
-        }
-
-        .image-meta {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          color: var(--muted);
-          font-size: 12px;
-        }
-
-        .clear-image {
-          background: transparent;
-          border: 1px solid var(--border);
-          border-radius: 6px;
-          color: var(--muted);
-          cursor: pointer;
-          font-family: 'DM Sans', sans-serif;
-          font-size: 12px;
-          padding: 5px 10px;
-        }
-
-        .clear-image:hover {
-          border-color: #ef4444;
-          color: #ef4444;
-        }
-
         .grid-2 {
           display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
           margin-bottom: 20px;
@@ -594,7 +436,6 @@ export default function ContentAIPro() {
           outline: none;
           cursor: pointer;
           appearance: none;
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
           background-repeat: no-repeat;
           background-position: right 14px center;
           transition: border-color 0.2s;
@@ -897,8 +738,6 @@ export default function ContentAIPro() {
           }
           .right-panel, .sidebar { display: none; }
           .center { padding: 20px; }
-          .upload-zone { grid-template-columns: 1fr; }
-          .upload-preview { width: 100%; max-width: 180px; }
         }
       `}</style>
 
@@ -951,11 +790,7 @@ export default function ContentAIPro() {
           {/* Header */}
           <header className="header">
             <div className="logo">
-              <div className="logo-mark">
-                ✦
-                <span className="logo-secret" aria-hidden="true">CCC</span>
-              </div>
-              <span className="logo-text">Content<span>AI</span> Pro</span>
+              <img className="logo-img" src="/content-ai-pro-logo.png" alt="Content AI Pro" />
             </div>
             <div className="header-badge">✦ Pro Suite</div>
             <div className="header-right">
@@ -995,53 +830,15 @@ export default function ContentAIPro() {
             <div className="section-title">{activeTool.label}</div>
             <div className="section-subtitle">{activeTool.desc} — powered by Claude AI</div>
 
-            {activeTool.acceptsImage && (
-              <div className="input-group">
-                <label className="input-label">Upload Image</label>
-                <div className="upload-zone">
-                  <div className="upload-preview">
-                    {imagePreview ? <img src={imagePreview} alt="Uploaded preview" /> : "Image preview"}
-                  </div>
-                  <div className="upload-actions">
-                    <input
-                      className="file-input"
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/gif"
-                      onChange={handleImageUpload}
-                    />
-                    <div className="image-meta">
-                      <span>{imageData ? imageData.name : "PNG, JPG, WebP or GIF under 5MB"}</span>
-                      {imageData && (
-                        <button className="clear-image" type="button" onClick={clearImage}>
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <div className="input-group">
-              <label className="input-label">
-                {activeTool.acceptsImage ? "Image Description / Goal" : "Your Niche / Topic / Brand"}
-              </label>
-              {activeTool.acceptsImage ? (
-                <textarea
-                  className="text-input"
-                  placeholder="e.g. launch caption for this skincare product photo, highlight premium ingredients and a calm self-care mood..."
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                />
-              ) : (
-                <input
-                  className="text-input"
-                  placeholder="e.g. fitness coaching, SaaS startup, luxury skincare..."
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && generate()}
-                />
-              )}
+              <label className="input-label">Your Niche / Topic / Brand</label>
+              <input
+                className="text-input"
+                placeholder="e.g. fitness coaching, SaaS startup, luxury skincare..."
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && generate()}
+              />
             </div>
 
             <div className="grid-2">
@@ -1164,7 +961,7 @@ export default function ContentAIPro() {
                 <div className="pricing-price">$29<span style={{ fontSize: 14, fontWeight: 400, color: "var(--muted)" }}>/mo</span></div>
                 <div className="pricing-note">Or $49 lifetime access</div>
                 <ul className="feature-list">
-                  {["7 AI Content Tools", "Image-to-content Generator", "Unlimited Generations", "All Platforms & Tones", "Generation History", "One-click Copy", "Priority Support"].map((f) => (
+                  {["7 AI Content Tools", "SEO Content Generator", "Unlimited Generations", "All Platforms & Tones", "Generation History", "One-click Copy", "Priority Support"].map((f) => (
                     <li key={f} className="feature-item">
                       <div className="feature-dot" />
                       {f}
