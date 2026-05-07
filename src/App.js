@@ -245,7 +245,8 @@ export default function ContentAIPro() {
 
         .header {
           grid-column: 1 / -1;
-          padding: 20px 28px;
+          min-height: 136px;
+          padding: 18px 28px;
           border-bottom: 1px solid var(--border);
           display: flex;
           align-items: center;
@@ -258,9 +259,13 @@ export default function ContentAIPro() {
         .logo {
           display: flex;
           align-items: center;
-          width: 236px;
-          height: 50px;
-          overflow: hidden;
+          width: 286px;
+          height: 112px;
+          background: #f7f4ec;
+          border: 1px solid rgba(201,168,76,0.26);
+          border-radius: 10px;
+          padding: 6px 10px;
+          box-shadow: 0 10px 30px rgba(0,0,0,0.22);
         }
 
         .logo-img {
@@ -269,7 +274,6 @@ export default function ContentAIPro() {
           object-fit: contain;
           object-position: left center;
           display: block;
-          filter: brightness(1.75) contrast(1.08);
         }
 
         .header-badge {
