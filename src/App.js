@@ -164,9 +164,9 @@ export default function ContentAIPro() {
           --bg: #080a0e;
           --surface: #0e1117;
           --border: #1e2535;
-          --gold: #c9a84c;
-          --gold-light: #e8c96a;
-          --gold-dim: rgba(201,168,76,0.15);
+          --gold: #ef8137;
+          --gold-light: #ffad72;
+          --gold-dim: rgba(239,129,55,0.15);
           --text: #e8e4d9;
           --muted: #6b7280;
           --accent: #3b82f6;
@@ -175,18 +175,18 @@ export default function ContentAIPro() {
           --panel-bg: rgba(14,17,23,0.5);
           --select-option-bg: #0e1117;
           --button-text: #080a0e;
-          --mesh-gold: rgba(201,168,76,0.07);
+          --mesh-gold: rgba(239,129,55,0.07);
           --mesh-blue: rgba(59,130,246,0.05);
-          --mesh-soft: rgba(201,168,76,0.03);
+          --mesh-soft: rgba(180,76,24,0.04);
         }
 
         .app.light {
           --bg: #f7f4ec;
           --surface: #fffaf0;
           --border: #ded2b7;
-          --gold: #9a7322;
-          --gold-light: #7d5d1d;
-          --gold-dim: rgba(154,115,34,0.12);
+          --gold: #c45a20;
+          --gold-light: #8f3f17;
+          --gold-dim: rgba(196,90,32,0.12);
           --text: #17140f;
           --muted: #6f6659;
           --accent: #2563eb;
@@ -195,9 +195,9 @@ export default function ContentAIPro() {
           --panel-bg: rgba(255,250,240,0.62);
           --select-option-bg: #fffaf0;
           --button-text: #fffaf0;
-          --mesh-gold: rgba(154,115,34,0.12);
+          --mesh-gold: rgba(196,90,32,0.12);
           --mesh-blue: rgba(37,99,235,0.07);
-          --mesh-soft: rgba(154,115,34,0.06);
+          --mesh-soft: rgba(143,63,23,0.06);
         }
 
         .app {
@@ -276,7 +276,7 @@ export default function ContentAIPro() {
 
         .header-badge {
           background: var(--gold-dim);
-          border: 1px solid rgba(201,168,76,0.3);
+          border: 1px solid rgba(239,129,55,0.3);
           color: var(--gold-light);
           padding: 5px 14px;
           border-radius: 100px;
@@ -347,7 +347,7 @@ export default function ContentAIPro() {
 
         .tool-btn.active {
           background: var(--gold-dim);
-          border-color: rgba(201,168,76,0.35);
+          border-color: rgba(239,129,55,0.35);
         }
 
         .tool-icon {
@@ -448,7 +448,7 @@ export default function ContentAIPro() {
 
         .generate-btn {
           width: 100%;
-          background: linear-gradient(135deg, #c9a84c 0%, #e8c96a 50%, #c9a84c 100%);
+          background: linear-gradient(135deg, #b44c18 0%, #ef8137 50%, #b44c18 100%);
           background-size: 200% 200%;
           border: none;
           border-radius: 12px;
@@ -468,7 +468,7 @@ export default function ContentAIPro() {
         .generate-btn:hover:not(:disabled) {
           background-position: 100% 100%;
           transform: translateY(-1px);
-          box-shadow: 0 8px 24px rgba(201,168,76,0.35);
+          box-shadow: 0 8px 24px rgba(239,129,55,0.35);
         }
 
         .generate-btn:disabled {
@@ -625,7 +625,7 @@ export default function ContentAIPro() {
 
         .pricing-card {
           background: var(--gold-dim);
-          border: 1px solid rgba(201,168,76,0.25);
+          border: 1px solid rgba(239,129,55,0.25);
           border-radius: 12px;
           padding: 18px;
           margin-bottom: 12px;
@@ -659,8 +659,8 @@ export default function ContentAIPro() {
         }
 
         .income-strip {
-          background: linear-gradient(135deg, rgba(201,168,76,0.1), rgba(201,168,76,0.05));
-          border: 1px solid rgba(201,168,76,0.2);
+          background: linear-gradient(135deg, rgba(239,129,55,0.12), rgba(180,76,24,0.06));
+          border: 1px solid rgba(239,129,55,0.2);
           border-radius: 10px;
           padding: 14px;
           margin-bottom: 12px;
@@ -792,7 +792,11 @@ export default function ContentAIPro() {
           {/* Header */}
           <header className="header">
             <div className="logo">
-              <img className="logo-img" src="/content-ai-pro-logo.png" alt="Content AI Pro" />
+              <img
+                className="logo-img"
+                src={isLightMode ? "/content-ai-pro-logo-dark.png" : "/content-ai-pro-logo.png"}
+                alt="Content AI Pro"
+              />
             </div>
             <div className="header-badge">✦ Pro Suite</div>
             <div className="header-right">
