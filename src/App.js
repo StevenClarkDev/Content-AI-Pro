@@ -259,13 +259,11 @@ export default function ContentAIPro() {
         .logo {
           display: flex;
           align-items: center;
-          width: 226px;
-          height: 68px;
-          background: #f7f4ec;
-          border: 1px solid rgba(201,168,76,0.26);
-          border-radius: 8px;
-          padding: 7px 12px;
-          box-shadow: 0 10px 30px rgba(0,0,0,0.22);
+          width: 250px;
+          height: 72px;
+          background: transparent;
+          border: 0;
+          padding: 0;
         }
 
         .logo-img {
