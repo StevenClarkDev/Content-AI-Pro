@@ -9,11 +9,27 @@ type GenerateRequestBody = {
   platform?: unknown;
   tone?: unknown;
   keyword?: unknown;
+  imageData?: unknown;
+  imageName?: unknown;
 };
 
 type AnthropicTextBlock = {
   text?: string;
 };
+
+type AnthropicMessageContent =
+  | string
+  | Array<
+      | { type: "text"; text: string }
+      | {
+          type: "image";
+          source: {
+            type: "base64";
+            media_type: string;
+            data: string;
+          };
+        }
+    >;
 
 type AnthropicResponse = {
   content?: AnthropicTextBlock[];
@@ -24,6 +40,16 @@ type AnthropicResponse = {
 
 function firstHeader(value: HeaderValue): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function parseImageDataUrl(value: unknown) {
+  if (typeof value !== "string" || !value) return null;
+  const match = value.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) return null;
+  return {
+    mediaType: match[1],
+    data: match[2],
+  };
 }
 
 function setCorsHeaders(req: ApiRequest, res: ApiResponse) {
@@ -66,8 +92,29 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   if (!prompt) {
     return res.status(400).json({ error: "Prompt is required." });
   }
+  const image = parseImageDataUrl(body?.imageData);
+  if (body?.imageData && !image) {
+    return res.status(400).json({ error: "Uploaded image must be a PNG, JPG, WebP, or GIF data URL." });
+  }
 
   try {
+    const content: AnthropicMessageContent = image
+      ? [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: image.mediaType,
+              data: image.data,
+            },
+          },
+          {
+            type: "text",
+            text: prompt,
+          },
+        ]
+      : prompt;
+
     const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -81,7 +128,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         messages: [
           {
             role: "user",
-            content: prompt,
+            content,
           },
         ],
       }),

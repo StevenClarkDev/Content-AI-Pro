@@ -15,6 +15,7 @@ type Tool = {
   label: string;
   desc: string;
   platforms: string[];
+  acceptsImage?: boolean;
   prompt: (platform: string, tone: string, keyword: string) => string;
 };
 
@@ -39,6 +40,11 @@ type Particle = {
 type GenerateResponse = {
   text?: string;
   error?: string;
+};
+
+type UploadedImage = {
+  dataUrl: string;
+  name: string;
 };
 
 const TOOLS: Tool[] = [
@@ -97,6 +103,16 @@ const TOOLS: Tool[] = [
       `Write 3 versions of a ${p} for a professional in the ${kw} industry. Tone: ${tone}. Versions: Short (under 50 words), Medium (100 words), Long (200 words). Each should establish authority, personality, and a clear value proposition.`,
   },
   {
+    id: "image",
+    icon: "IMG",
+    label: "Image Content",
+    desc: "Generate captions and copy from an image",
+    platforms: ["Caption Ideas", "Product Description", "Alt Text", "Ad Creative", "Social Post"],
+    acceptsImage: true,
+    prompt: (p, tone, kw) =>
+      `Analyze the uploaded image and create ${p} for ${kw}. Tone: ${tone}. Describe what is visible, infer the likely product or context, and write polished copy the user can publish or adapt immediately.`,
+  },
+  {
     id: "seo",
     icon: "SEO",
     label: "SEO Content",
@@ -123,7 +139,9 @@ export default function ContentAIPro() {
   const [showHistory, setShowHistory] = useState(false);
   const [isLightMode, setIsLightMode] = useState(false);
   const outputRef = useRef<HTMLDivElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [particles, setParticles] = useState<Particle[]>([]);
+  const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
 
   useEffect(() => {
     const p = Array.from({ length: 18 }, (_, i) => ({
@@ -141,6 +159,9 @@ export default function ContentAIPro() {
     setPlatform(activeTool.platforms[0]);
     setOutput("");
     setError("");
+    if (!activeTool.acceptsImage) {
+      setUploadedImage(null);
+    }
   }, [activeTool]);
 
   useEffect(() => {
@@ -150,6 +171,10 @@ export default function ContentAIPro() {
   const generate = async () => {
     if (!keyword.trim()) {
       setError("Please enter your niche or topic first.");
+      return;
+    }
+    if (activeTool.acceptsImage && !uploadedImage) {
+      setError("Please upload an image first.");
       return;
     }
     setLoading(true);
@@ -167,6 +192,8 @@ export default function ContentAIPro() {
           platform,
           tone,
           keyword,
+          imageData: uploadedImage?.dataUrl,
+          imageName: uploadedImage?.name,
         }),
       });
 
@@ -189,6 +216,39 @@ export default function ContentAIPro() {
     navigator.clipboard.writeText(output);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleImageUpload = (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Please upload a PNG, JPG, WebP, or GIF image.");
+      return;
+    }
+    if (file.size > 6 * 1024 * 1024) {
+      setError("Please upload an image under 6 MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        setError("Could not read that image. Please try another one.");
+        return;
+      }
+      setUploadedImage({ dataUrl: reader.result, name: file.name });
+      setError("");
+    };
+    reader.onerror = () => {
+      setError("Could not read that image. Please try another one.");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clearUploadedImage = () => {
+    setUploadedImage(null);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
   };
 
   return (
@@ -483,6 +543,81 @@ export default function ContentAIPro() {
 
         .select-input option { background: var(--select-option-bg); }
         .select-input:focus { border-color: var(--gold); }
+
+        .upload-zone {
+          background: var(--surface);
+          border: 1px dashed rgba(239,129,55,0.45);
+          border-radius: 12px;
+          padding: 16px;
+          margin-bottom: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+        }
+
+        .upload-copy {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .upload-title {
+          color: var(--text);
+          font-size: 14px;
+          font-weight: 600;
+        }
+
+        .upload-note {
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .upload-btn,
+        .remove-image-btn {
+          background: transparent;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          color: var(--text);
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 13px;
+          padding: 8px 12px;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+
+        .upload-btn:hover,
+        .remove-image-btn:hover {
+          border-color: var(--gold);
+          color: var(--gold);
+        }
+
+        .image-preview {
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          margin-bottom: 20px;
+          overflow: hidden;
+          background: var(--surface);
+        }
+
+        .image-preview img {
+          display: block;
+          width: 100%;
+          max-height: 240px;
+          object-fit: contain;
+          background: rgba(0,0,0,0.18);
+        }
+
+        .image-preview-meta {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 10px 12px;
+          color: var(--muted);
+          font-size: 12px;
+        }
 
         .generate-btn {
           width: 100%;
@@ -911,6 +1046,43 @@ export default function ContentAIPro() {
                 </select>
               </div>
             </div>
+
+            {activeTool.acceptsImage && (
+              <>
+                <div className="upload-zone">
+                  <div className="upload-copy">
+                    <span className="upload-title">Upload image</span>
+                    <span className="upload-note">PNG, JPG, WebP, or GIF under 6 MB</span>
+                  </div>
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    style={{ display: "none" }}
+                    onChange={(e) => handleImageUpload(e.target.files?.[0])}
+                  />
+                  <button
+                    className="upload-btn"
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                  >
+                    Choose Image
+                  </button>
+                </div>
+
+                {uploadedImage && (
+                  <div className="image-preview">
+                    <img src={uploadedImage.dataUrl} alt={uploadedImage.name} />
+                    <div className="image-preview-meta">
+                      <span>{uploadedImage.name}</span>
+                      <button className="remove-image-btn" type="button" onClick={clearUploadedImage}>
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
 
             {error && <div className="error-msg">{error}</div>}
 
