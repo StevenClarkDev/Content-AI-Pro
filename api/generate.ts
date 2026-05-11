@@ -1,4 +1,5 @@
 const MODEL = "claude-sonnet-4-20250514";
+import { getAuthenticatedUser } from "./authUtils";
 import { savePromptSession, type PromptSessionSaveResult } from "./promptSessions";
 import type { ApiRequest, ApiResponse, HeaderValue } from "./httpTypes";
 
@@ -57,7 +58,7 @@ function setCorsHeaders(req: ApiRequest, res: ApiResponse) {
   res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
@@ -70,6 +71,11 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const user = await getAuthenticatedUser(req);
+  if (!user) {
+    return res.status(401).json({ error: "Please sign in to generate content." });
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -156,6 +162,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         model: MODEL,
         ipAddress: firstHeader(req.headers["x-forwarded-for"])?.split(",")[0]?.trim() || req.socket?.remoteAddress || null,
         userAgent: firstHeader(req.headers["user-agent"]) || null,
+        userId: user.id,
+        userName: user.name,
+        userEmail: user.email,
       });
     } catch (error) {
       console.error("Failed to save prompt session", error);

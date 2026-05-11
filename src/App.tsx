@@ -8,6 +8,9 @@ declare global {
 
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");
 const APP_SOURCE = window.Capacitor ? "android" : "portal";
+const IS_ANDROID_APP = APP_SOURCE === "android";
+const WEB_PORTAL_URL = API_BASE_URL || window.location.origin;
+const AUTH_STORAGE_KEY = "content_ai_pro_auth";
 
 type Tool = {
   id: string;
@@ -45,6 +48,26 @@ type GenerateResponse = {
 type UploadedImage = {
   dataUrl: string;
   name: string;
+};
+
+type AuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+};
+
+type AuthSession = {
+  token: string;
+  user: AuthUser;
+};
+
+type AuthMode = "signin" | "signup";
+
+type AuthResponse = {
+  token?: string;
+  user?: AuthUser;
+  error?: string;
 };
 
 const TOOLS: Tool[] = [
@@ -142,6 +165,17 @@ export default function ContentAIPro() {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [particles, setParticles] = useState<Particle[]>([]);
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode>("signin");
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [authError, setAuthError] = useState("");
+  const [authForm, setAuthForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    password: "",
+  });
 
   useEffect(() => {
     const p = Array.from({ length: 18 }, (_, i) => ({
@@ -156,6 +190,46 @@ export default function ContentAIPro() {
   }, []);
 
   useEffect(() => {
+    const storedSession = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!storedSession) {
+      setAuthChecking(false);
+      return;
+    }
+
+    let parsedSession: AuthSession | null = null;
+    try {
+      parsedSession = JSON.parse(storedSession) as AuthSession;
+    } catch {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      setAuthChecking(false);
+      return;
+    }
+
+    if (!parsedSession?.token) {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      setAuthChecking(false);
+      return;
+    }
+    const storedToken = parsedSession.token;
+
+    fetch(`${API_BASE_URL}/api/me`, {
+      headers: { Authorization: `Bearer ${storedToken}` },
+    })
+      .then(async (res) => {
+        const data = (await res.json()) as AuthResponse;
+        if (!res.ok || !data.user) throw new Error(data.error || "Session expired.");
+        const session = { token: storedToken, user: data.user };
+        setAuthSession(session);
+        window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+      })
+      .catch(() => {
+        window.localStorage.removeItem(AUTH_STORAGE_KEY);
+        setAuthSession(null);
+      })
+      .finally(() => setAuthChecking(false));
+  }, []);
+
+  useEffect(() => {
     setPlatform(activeTool.platforms[0]);
     setOutput("");
     setError("");
@@ -167,6 +241,12 @@ export default function ContentAIPro() {
   useEffect(() => {
     setCharCount(output.length);
   }, [output]);
+
+  useEffect(() => {
+    if (IS_ANDROID_APP && authMode === "signup") {
+      setAuthMode("signin");
+    }
+  }, [authMode]);
 
   const generate = async () => {
     if (!keyword.trim()) {
@@ -184,7 +264,10 @@ export default function ContentAIPro() {
     try {
       const res = await fetch(`${API_BASE_URL}/api/generate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authSession ? { Authorization: `Bearer ${authSession.token}` } : {}),
+        },
         body: JSON.stringify({
           prompt: activeTool.prompt(platform, tone, keyword),
           source: APP_SOURCE,
@@ -249,6 +332,58 @@ export default function ContentAIPro() {
     if (imageInputRef.current) {
       imageInputRef.current.value = "";
     }
+  };
+
+  const handleAuthSubmit = async () => {
+    if (IS_ANDROID_APP && authMode === "signup") {
+      window.location.href = WEB_PORTAL_URL;
+      return;
+    }
+
+    setAuthError("");
+    setAuthLoading(true);
+
+    try {
+      const endpoint = authMode === "signup" ? "signup" : "signin";
+      const payload =
+        authMode === "signup"
+          ? authForm
+          : {
+              email: authForm.email,
+              password: authForm.password,
+            };
+
+      const res = await fetch(`${API_BASE_URL}/api/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = (await res.json()) as AuthResponse;
+      if (!res.ok || !data.token || !data.user) {
+        throw new Error(data.error || "Authentication failed.");
+      }
+
+      const session = { token: data.token, user: data.user };
+      setAuthSession(session);
+      setAuthForm({ name: "", email: "", phone: "", password: "" });
+      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+    } catch (e) {
+      setAuthError(e instanceof Error ? e.message : "Authentication failed.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const signOut = () => {
+    setAuthSession(null);
+    setHistory([]);
+    setOutput("");
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+  };
+
+  const openPortalSignup = () => {
+    window.location.href = WEB_PORTAL_URL;
   };
 
   return (
@@ -330,6 +465,135 @@ export default function ContentAIPro() {
           10% { opacity: 0.25; }
           90% { opacity: 0.15; }
           100% { transform: translateY(-10vh) rotate(360deg); opacity: 0; }
+        }
+
+        .auth-shell {
+          position: relative;
+          z-index: 1;
+          min-height: 100vh;
+          display: grid;
+          place-items: center;
+          padding: 24px;
+        }
+
+        .auth-panel {
+          width: min(440px, 100%);
+          background: var(--panel-bg);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 28px;
+          backdrop-filter: blur(14px);
+          box-shadow: 0 22px 80px rgba(0,0,0,0.28);
+        }
+
+        .auth-logo {
+          width: 230px;
+          height: 66px;
+          margin-bottom: 18px;
+        }
+
+        .auth-title {
+          font-family: 'Playfair Display', serif;
+          color: var(--text);
+          font-size: 30px;
+          font-weight: 800;
+          margin-bottom: 6px;
+        }
+
+        .auth-subtitle {
+          color: var(--muted);
+          font-size: 14px;
+          line-height: 1.5;
+          margin-bottom: 22px;
+        }
+
+        .auth-tabs {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          margin-bottom: 18px;
+        }
+
+        .auth-tab {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          color: var(--muted);
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 14px;
+          padding: 10px;
+          transition: all 0.2s;
+        }
+
+        .auth-tab.active {
+          background: var(--gold-dim);
+          border-color: rgba(239,129,55,0.4);
+          color: var(--gold-light);
+        }
+
+        .auth-form {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .auth-input {
+          width: 100%;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          color: var(--text);
+          font-family: 'DM Sans', sans-serif;
+          font-size: 15px;
+          outline: none;
+          padding: 13px 14px;
+          transition: border-color 0.2s;
+        }
+
+        .auth-input:focus { border-color: var(--gold); }
+        .auth-input::placeholder { color: var(--muted); }
+
+        .auth-button {
+          background: linear-gradient(135deg, #b44c18 0%, #ef8137 50%, #b44c18 100%);
+          border: 0;
+          border-radius: 12px;
+          color: var(--button-text);
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 15px;
+          font-weight: 800;
+          letter-spacing: 0.03em;
+          margin-top: 4px;
+          padding: 14px;
+          text-transform: uppercase;
+        }
+
+        .auth-button:disabled {
+          cursor: not-allowed;
+          opacity: 0.65;
+        }
+
+        .auth-error {
+          background: rgba(248,113,113,0.12);
+          border: 1px solid rgba(248,113,113,0.28);
+          border-radius: 10px;
+          color: #f87171;
+          font-size: 13px;
+          padding: 10px 12px;
+        }
+
+        .account-chip {
+          align-items: center;
+          color: var(--muted);
+          display: flex;
+          font-size: 13px;
+          gap: 10px;
+        }
+
+        .account-name {
+          color: var(--text);
+          font-weight: 600;
         }
 
         .main-grid {
@@ -932,7 +1196,103 @@ export default function ContentAIPro() {
           />
         ))}
 
-        {showHistory && (
+        {!authSession && (
+          <div className="auth-shell">
+            <div className="auth-panel">
+              <div className="auth-logo">
+                <img
+                  className="logo-img"
+                  src={isLightMode ? "/content-ai-pro-logo-dark.png" : "/content-ai-pro-logo.png"}
+                  alt="Content AI Pro"
+                />
+              </div>
+              <div className="auth-title">{authMode === "signup" ? "Create Account" : "Welcome Back"}</div>
+              <div className="auth-subtitle">
+                {authChecking
+                  ? "Checking your session..."
+                  : IS_ANDROID_APP
+                    ? "Sign in with the account you created on the Content AI Pro web portal."
+                    : "Sign in to use Content AI Pro across the web portal and Android app."}
+              </div>
+
+              {!authChecking && (
+                <>
+                  <div className="auth-tabs">
+                    <button
+                      className={`auth-tab ${authMode === "signin" ? "active" : ""}`}
+                      type="button"
+                      onClick={() => {
+                        setAuthMode("signin");
+                        setAuthError("");
+                      }}
+                    >
+                      Sign In
+                    </button>
+                    <button
+                      className="auth-tab"
+                      type="button"
+                      onClick={() => {
+                        if (IS_ANDROID_APP) {
+                          openPortalSignup();
+                          return;
+                        }
+                        setAuthError("");
+                        setAuthMode("signup");
+                      }}
+                    >
+                      {IS_ANDROID_APP ? "Create on Web" : "Create Account"}
+                    </button>
+                  </div>
+
+                  <form
+                    className="auth-form"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleAuthSubmit();
+                    }}
+                  >
+                    {authMode === "signup" && (
+                      <>
+                        <input
+                          className="auth-input"
+                          placeholder="Name"
+                          value={authForm.name}
+                          onChange={(e) => setAuthForm((current) => ({ ...current, name: e.target.value }))}
+                        />
+                        <input
+                          className="auth-input"
+                          placeholder="Phone Number"
+                          value={authForm.phone}
+                          onChange={(e) => setAuthForm((current) => ({ ...current, phone: e.target.value }))}
+                        />
+                      </>
+                    )}
+                    <input
+                      className="auth-input"
+                      placeholder="Email"
+                      type="email"
+                      value={authForm.email}
+                      onChange={(e) => setAuthForm((current) => ({ ...current, email: e.target.value }))}
+                    />
+                    <input
+                      className="auth-input"
+                      placeholder="Password"
+                      type="password"
+                      value={authForm.password}
+                      onChange={(e) => setAuthForm((current) => ({ ...current, password: e.target.value }))}
+                    />
+                    {authError && <div className="auth-error">{authError}</div>}
+                    <button className="auth-button" type="submit" disabled={authLoading}>
+                      {authLoading ? "Please wait..." : authMode === "signup" ? "Create Account" : "Sign In"}
+                    </button>
+                  </form>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {authSession && showHistory && (
           <div className="history-panel" onClick={() => setShowHistory(false)}>
             <div className="history-modal" onClick={(e) => e.stopPropagation()}>
               <div className="history-modal-header">
@@ -961,7 +1321,7 @@ export default function ContentAIPro() {
           </div>
         )}
 
-        <div className="main-grid">
+        {authSession && <div className="main-grid">
           {/* Header */}
           <header className="header">
             <div className="logo">
@@ -973,6 +1333,12 @@ export default function ContentAIPro() {
             </div>
             <div className="header-badge">✦ Pro Suite</div>
             <div className="header-right">
+              <div className="account-chip">
+                <span className="account-name">{authSession.user.name}</span>
+                <button className="history-btn" type="button" onClick={signOut}>
+                  Sign Out
+                </button>
+              </div>
               <button
                 className="theme-btn"
                 onClick={() => setIsLightMode((current) => !current)}
@@ -1196,7 +1562,7 @@ export default function ContentAIPro() {
               </div>
             </div>
           </aside>
-        </div>
+        </div>}
       </div>
     </>
   );

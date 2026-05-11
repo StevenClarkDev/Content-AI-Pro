@@ -14,6 +14,9 @@ export type PromptSessionInput = {
   model?: string | null;
   ipAddress?: string | null;
   userAgent?: string | null;
+  userId?: string | null;
+  userName?: string | null;
+  userEmail?: string | null;
 };
 
 export type PromptSessionSaveResult =
@@ -51,9 +54,16 @@ async function ensureSchema(sql: SqlClient) {
       output TEXT,
       model TEXT,
       ip_address TEXT,
-      user_agent TEXT
+      user_agent TEXT,
+      user_id TEXT,
+      user_name TEXT,
+      user_email TEXT
     )
   `;
+
+  await sql`ALTER TABLE prompt_sessions ADD COLUMN IF NOT EXISTS user_id TEXT`;
+  await sql`ALTER TABLE prompt_sessions ADD COLUMN IF NOT EXISTS user_name TEXT`;
+  await sql`ALTER TABLE prompt_sessions ADD COLUMN IF NOT EXISTS user_email TEXT`;
 
   await sql`
     CREATE INDEX IF NOT EXISTS prompt_sessions_created_at_idx
@@ -84,7 +94,10 @@ export async function savePromptSession(session: PromptSessionInput): Promise<Pr
       output,
       model,
       ip_address,
-      user_agent
+      user_agent,
+      user_id,
+      user_name,
+      user_email
     )
     VALUES (
       ${id},
@@ -97,7 +110,10 @@ export async function savePromptSession(session: PromptSessionInput): Promise<Pr
       ${session.output || null},
       ${session.model || null},
       ${session.ipAddress || null},
-      ${session.userAgent || null}
+      ${session.userAgent || null},
+      ${session.userId || null},
+      ${session.userName || null},
+      ${session.userEmail || null}
     )
   `;
 
@@ -126,7 +142,10 @@ export async function listPromptSessions(limit: unknown = 50): Promise<PromptSes
       output,
       model,
       ip_address,
-      user_agent
+      user_agent,
+      user_id,
+      user_name,
+      user_email
     FROM prompt_sessions
     ORDER BY created_at DESC
     LIMIT ${safeLimit}
