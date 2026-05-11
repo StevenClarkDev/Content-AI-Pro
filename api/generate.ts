@@ -1,15 +1,40 @@
 const MODEL = "claude-sonnet-4-20250514";
-const { savePromptSession } = require("./promptSessions");
+import { savePromptSession, type PromptSessionSaveResult } from "./promptSessions";
+import type { ApiRequest, ApiResponse, HeaderValue } from "./httpTypes";
 
-function setCorsHeaders(req, res) {
-  const origin = req.headers.origin || "*";
+type GenerateRequestBody = {
+  prompt?: unknown;
+  source?: unknown;
+  tool?: unknown;
+  platform?: unknown;
+  tone?: unknown;
+  keyword?: unknown;
+};
+
+type AnthropicTextBlock = {
+  text?: string;
+};
+
+type AnthropicResponse = {
+  content?: AnthropicTextBlock[];
+  error?: {
+    message?: string;
+  };
+};
+
+function firstHeader(value: HeaderValue): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function setCorsHeaders(req: ApiRequest, res: ApiResponse) {
+  const origin = firstHeader(req.headers.origin) || "*";
   res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req: ApiRequest, res: ApiResponse) {
   setCorsHeaders(req, res);
 
   if (req.method === "OPTIONS") {
@@ -28,10 +53,10 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  let body = req.body;
+  let body = req.body as GenerateRequestBody | string | undefined;
   if (typeof body === "string") {
     try {
-      body = JSON.parse(body || "{}");
+      body = JSON.parse(body || "{}") as GenerateRequestBody;
     } catch {
       return res.status(400).json({ error: "Request body must be valid JSON." });
     }
@@ -62,7 +87,7 @@ module.exports = async function handler(req, res) {
       }),
     });
 
-    const data = await anthropicRes.json();
+    const data = (await anthropicRes.json()) as AnthropicResponse;
     if (!anthropicRes.ok) {
       return res.status(anthropicRes.status).json({
         error: data.error?.message || "Anthropic request failed.",
@@ -70,7 +95,7 @@ module.exports = async function handler(req, res) {
     }
 
     const text = data.content?.map((block) => block.text || "").join("") || "";
-    let session = { stored: false };
+    let session: PromptSessionSaveResult = { stored: false, reason: "Prompt session was not saved." };
 
     try {
       session = await savePromptSession({
@@ -82,8 +107,8 @@ module.exports = async function handler(req, res) {
         prompt,
         output: text,
         model: MODEL,
-        ipAddress: req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || null,
-        userAgent: req.headers["user-agent"] || null,
+        ipAddress: firstHeader(req.headers["x-forwarded-for"])?.split(",")[0]?.trim() || req.socket?.remoteAddress || null,
+        userAgent: firstHeader(req.headers["user-agent"]) || null,
       });
     } catch (error) {
       console.error("Failed to save prompt session", error);
@@ -94,4 +119,4 @@ module.exports = async function handler(req, res) {
   } catch (error) {
     return res.status(500).json({ error: "Generation failed. Please try again." });
   }
-};
+}

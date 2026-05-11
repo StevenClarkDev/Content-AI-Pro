@@ -1,14 +1,19 @@
-const { listPromptSessions } = require("./promptSessions");
+import { listPromptSessions } from "./promptSessions";
+import type { ApiRequest, ApiResponse } from "./httpTypes";
 
-function setCorsHeaders(req, res) {
-  const origin = req.headers.origin || "*";
+function firstHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function setCorsHeaders(req: ApiRequest, res: ApiResponse) {
+  const origin = firstHeader(req.headers.origin) || "*";
   res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req: ApiRequest, res: ApiResponse) {
   setCorsHeaders(req, res);
 
   if (req.method === "OPTIONS") {
@@ -25,7 +30,7 @@ module.exports = async function handler(req, res) {
     return res.status(503).json({ error: "Session admin access is not configured." });
   }
 
-  const authHeader = req.headers.authorization || "";
+  const authHeader = firstHeader(req.headers.authorization) || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
   if (token !== adminToken) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -38,4 +43,4 @@ module.exports = async function handler(req, res) {
     console.error("Failed to list prompt sessions", error);
     return res.status(500).json({ error: "Could not load prompt sessions." });
   }
-};
+}

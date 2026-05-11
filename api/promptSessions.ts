@@ -1,7 +1,30 @@
-const { randomUUID } = require("crypto");
-const { neon } = require("@neondatabase/serverless");
+import { randomUUID } from "crypto";
+import { neon } from "@neondatabase/serverless";
 
-let sqlClient = null;
+type SqlClient = ReturnType<typeof neon>;
+
+export type PromptSessionInput = {
+  source?: string | null;
+  tool?: string | null;
+  platform?: string | null;
+  tone?: string | null;
+  keyword?: string | null;
+  prompt: string;
+  output?: string | null;
+  model?: string | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+};
+
+export type PromptSessionSaveResult =
+  | { stored: true; id: string }
+  | { stored: false; reason: string };
+
+export type PromptSessionListResult =
+  | { stored: true; sessions: unknown[] }
+  | { stored: false; sessions: [] };
+
+let sqlClient: SqlClient | null = null;
 let schemaReady = false;
 
 function getSql() {
@@ -12,7 +35,7 @@ function getSql() {
   return sqlClient;
 }
 
-async function ensureSchema(sql) {
+async function ensureSchema(sql: SqlClient) {
   if (schemaReady) return;
 
   await sql`
@@ -40,7 +63,7 @@ async function ensureSchema(sql) {
   schemaReady = true;
 }
 
-async function savePromptSession(session) {
+export async function savePromptSession(session: PromptSessionInput): Promise<PromptSessionSaveResult> {
   const sql = getSql();
   if (!sql) {
     return { stored: false, reason: "DATABASE_URL is not configured." };
@@ -81,7 +104,7 @@ async function savePromptSession(session) {
   return { stored: true, id };
 }
 
-async function listPromptSessions(limit = 50) {
+export async function listPromptSessions(limit: unknown = 50): Promise<PromptSessionListResult> {
   const sql = getSql();
   if (!sql) {
     return { stored: false, sessions: [] };
@@ -90,7 +113,7 @@ async function listPromptSessions(limit = 50) {
   await ensureSchema(sql);
 
   const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100);
-  const sessions = await sql`
+  const sessions = (await sql`
     SELECT
       id,
       created_at,
@@ -107,12 +130,7 @@ async function listPromptSessions(limit = 50) {
     FROM prompt_sessions
     ORDER BY created_at DESC
     LIMIT ${safeLimit}
-  `;
+  `) as unknown[];
 
   return { stored: true, sessions };
 }
-
-module.exports = {
-  listPromptSessions,
-  savePromptSession,
-};

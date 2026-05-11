@@ -1,9 +1,47 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+
+declare global {
+  interface Window {
+    Capacitor?: unknown;
+  }
+}
 
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");
 const APP_SOURCE = window.Capacitor ? "android" : "portal";
 
-const TOOLS = [
+type Tool = {
+  id: string;
+  icon: string;
+  label: string;
+  desc: string;
+  platforms: string[];
+  prompt: (platform: string, tone: string, keyword: string) => string;
+};
+
+type HistoryItem = {
+  tool: string;
+  platform: string;
+  keyword: string;
+  tone: string;
+  output: string;
+  time: string;
+};
+
+type Particle = {
+  id: number;
+  x: number;
+  y: number;
+  size: number;
+  speed: number;
+  delay: number;
+};
+
+type GenerateResponse = {
+  text?: string;
+  error?: string;
+};
+
+const TOOLS: Tool[] = [
   {
     id: "social",
     icon: "✦",
@@ -81,11 +119,11 @@ export default function ContentAIPro() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [charCount, setCharCount] = useState(0);
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [isLightMode, setIsLightMode] = useState(false);
-  const outputRef = useRef(null);
-  const [particles, setParticles] = useState([]);
+  const outputRef = useRef<HTMLDivElement | null>(null);
+  const [particles, setParticles] = useState<Particle[]>([]);
 
   useEffect(() => {
     const p = Array.from({ length: 18 }, (_, i) => ({
@@ -132,7 +170,7 @@ export default function ContentAIPro() {
         }),
       });
 
-      const data = await res.json();
+      const data = (await res.json()) as GenerateResponse;
       if (!res.ok) throw new Error(data.error || "Generation failed");
       const text = data.text || "";
       setOutput(text);
@@ -141,13 +179,13 @@ export default function ContentAIPro() {
         ...prev.slice(0, 9),
       ]);
     } catch (e) {
-      setError(e.message || "Generation failed. Please try again.");
+      setError(e instanceof Error ? e.message : "Generation failed. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  const copyOutput = () => {
+  const copyOutput = async () => {
     navigator.clipboard.writeText(output);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
