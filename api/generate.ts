@@ -1,7 +1,7 @@
 const MODEL = "claude-sonnet-4-20250514";
-import { getAuthenticatedUser } from "./authUtils";
-import { savePromptSession, type PromptSessionSaveResult } from "./promptSessions";
-import type { ApiRequest, ApiResponse, HeaderValue } from "./httpTypes";
+import { getAuthenticatedUser } from "./authUtils.js";
+import { savePromptSession, type PromptSessionSaveResult } from "./promptSessions.js";
+import type { ApiRequest, ApiResponse, HeaderValue } from "./httpTypes.js";
 
 type GenerateRequestBody = {
   prompt?: unknown;

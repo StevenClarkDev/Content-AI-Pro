@@ -8,8 +8,8 @@ import {
   normalizeEmail,
   publicUser,
   validatePassword,
-} from "./authUtils";
-import type { ApiRequest, ApiResponse } from "./httpTypes";
+} from "./authUtils.js";
+import type { ApiRequest, ApiResponse } from "./httpTypes.js";
 
 type SignupBody = {
   name?: unknown;

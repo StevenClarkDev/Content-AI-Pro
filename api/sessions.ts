@@ -1,5 +1,5 @@
-import { listPromptSessions } from "./promptSessions";
-import type { ApiRequest, ApiResponse } from "./httpTypes";
+import { listPromptSessions } from "./promptSessions.js";
+import type { ApiRequest, ApiResponse } from "./httpTypes.js";
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;

@@ -1,5 +1,5 @@
-import { getAuthenticatedUser, publicUser } from "./authUtils";
-import type { ApiRequest, ApiResponse } from "./httpTypes";
+import { getAuthenticatedUser, publicUser } from "./authUtils.js";
+import type { ApiRequest, ApiResponse } from "./httpTypes.js";
 
 function setCorsHeaders(req: ApiRequest, res: ApiResponse) {
   const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin || "*";

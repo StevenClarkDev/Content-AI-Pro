@@ -4,8 +4,8 @@ import {
   normalizeEmail,
   publicUser,
   verifyPassword,
-} from "./authUtils";
-import type { ApiRequest, ApiResponse } from "./httpTypes";
+} from "./authUtils.js";
+import type { ApiRequest, ApiResponse } from "./httpTypes.js";
 
 type SigninBody = {
   email?: unknown;
