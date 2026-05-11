@@ -70,6 +70,38 @@ type AuthResponse = {
   error?: string;
 };
 
+type ApiRequestOptions = Omit<RequestInit, "body"> & {
+  body?: BodyInit | null;
+};
+
+async function parseApiResponse<T>(res: Response): Promise<T> {
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return (await res.json()) as T;
+  }
+
+  const text = await res.text();
+  throw new Error(text.trim() || `Server returned ${res.status}. Please check the API URL.`);
+}
+
+async function apiFetch<T>(path: string, options: ApiRequestOptions = {}): Promise<{ res: Response; data: T }> {
+  const baseUrls = API_BASE_URL && APP_SOURCE !== "android" ? [API_BASE_URL, ""] : [API_BASE_URL];
+  let lastError: Error | null = null;
+
+  for (const baseUrl of baseUrls) {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, options);
+      const data = await parseApiResponse<T>(res);
+      return { res, data };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Request failed.");
+      if (!baseUrl) break;
+    }
+  }
+
+  throw lastError || new Error("Request failed.");
+}
+
 const TOOLS: Tool[] = [
   {
     id: "social",
@@ -212,11 +244,10 @@ export default function ContentAIPro() {
     }
     const storedToken = parsedSession.token;
 
-    fetch(`${API_BASE_URL}/api/me`, {
+    apiFetch<AuthResponse>("/api/me", {
       headers: { Authorization: `Bearer ${storedToken}` },
     })
-      .then(async (res) => {
-        const data = (await res.json()) as AuthResponse;
+      .then(({ res, data }) => {
         if (!res.ok || !data.user) throw new Error(data.error || "Session expired.");
         const session = { token: storedToken, user: data.user };
         setAuthSession(session);
@@ -262,7 +293,7 @@ export default function ContentAIPro() {
     setOutput("");
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/generate`, {
+      const { res, data } = await apiFetch<GenerateResponse>("/api/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -280,7 +311,6 @@ export default function ContentAIPro() {
         }),
       });
 
-      const data = (await res.json()) as GenerateResponse;
       if (!res.ok) throw new Error(data.error || "Generation failed");
       const text = data.text || "";
       setOutput(text);
@@ -353,13 +383,12 @@ export default function ContentAIPro() {
               password: authForm.password,
             };
 
-      const res = await fetch(`${API_BASE_URL}/api/${endpoint}`, {
+      const { res, data } = await apiFetch<AuthResponse>(`/api/${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      const data = (await res.json()) as AuthResponse;
       if (!res.ok || !data.token || !data.user) {
         throw new Error(data.error || "Authentication failed.");
       }
