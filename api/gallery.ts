@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
-import type { ApiRequest, ApiResponse } from "./httpTypes";
-import { getAuthenticatedUser, getSql } from "./authUtils";
+import type { ApiRequest, ApiResponse } from "./httpTypes.js";
+import { getAuthenticatedUser, getSql } from "./authUtils.js";
 
 type GalleryAsset = {
   id: string;
