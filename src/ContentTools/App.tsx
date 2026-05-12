@@ -1,0 +1,2227 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+
+declare global {
+  interface Window {
+    Capacitor?: unknown;
+  }
+}
+
+const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");
+const APP_SOURCE = window.Capacitor ? "android" : "portal";
+const IS_ANDROID_APP = APP_SOURCE === "android";
+const WEB_PORTAL_URL = API_BASE_URL || window.location.origin;
+const AUTH_STORAGE_KEY = "content_ai_pro_auth";
+
+type Tool = {
+  id: string;
+  icon: string;
+  label: string;
+  desc: string;
+  platforms: string[];
+  acceptsImage?: boolean;
+  prompt: (platform: string, tone: string, keyword: string) => string;
+};
+
+type HistoryItem = {
+  tool: string;
+  platform: string;
+  keyword: string;
+  tone: string;
+  output: string;
+  time: string;
+};
+
+type Particle = {
+  id: number;
+  x: number;
+  y: number;
+  size: number;
+  speed: number;
+  delay: number;
+};
+
+type GenerateResponse = {
+  text?: string;
+  error?: string;
+};
+
+type UploadedImage = {
+  dataUrl: string;
+  name: string;
+};
+
+type AuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+};
+
+type AuthSession = {
+  token: string;
+  user: AuthUser;
+};
+
+type AuthMode = "signin" | "signup";
+
+type AuthResponse = {
+  token?: string;
+  user?: AuthUser;
+  error?: string;
+};
+
+type AppView = "content" | "cyberGallery";
+
+type GalleryAsset = {
+  id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  data_url: string;
+  source: string;
+  created_at: string;
+};
+
+type GalleryResponse = {
+  assets?: GalleryAsset[];
+  asset?: GalleryAsset;
+  ok?: boolean;
+  error?: string;
+};
+
+type ApiRequestOptions = Omit<RequestInit, "body"> & {
+  body?: BodyInit | null;
+};
+
+async function parseApiResponse<T>(res: Response): Promise<T> {
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return (await res.json()) as T;
+  }
+
+  const text = await res.text();
+  throw new Error(text.trim() || `Server returned ${res.status}. Please check the API URL.`);
+}
+
+async function apiFetch<T>(path: string, options: ApiRequestOptions = {}): Promise<{ res: Response; data: T }> {
+  const baseUrls = API_BASE_URL && APP_SOURCE !== "android" ? [API_BASE_URL, ""] : [API_BASE_URL];
+  let lastError: Error | null = null;
+
+  for (const baseUrl of baseUrls) {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, options);
+      const data = await parseApiResponse<T>(res);
+      return { res, data };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Request failed.");
+      if (!baseUrl) break;
+    }
+  }
+
+  throw lastError || new Error("Request failed.");
+}
+
+const TOOLS: Tool[] = [
+  {
+    id: "social",
+    icon: "✦",
+    label: "Social Media",
+    desc: "Viral posts for any platform",
+    platforms: ["Instagram", "LinkedIn", "Twitter/X", "TikTok", "Facebook"],
+    prompt: (p, tone, kw) =>
+      `Write 6 high-performing ${p} posts for a brand in the ${kw} niche. Tone: ${tone}. Include overlay text, body, and relevant hashtags. Make them scroll-stopping and platform-native. Format each post clearly labeled Post 1, Post 2, Post 3, Post 4, Post 5, Post 6.`,
+  },
+  {
+    id: "email",
+    icon: "◈",
+    label: "Email Sequences",
+    desc: "Convert subscribers to buyers",
+    platforms: ["Welcome Series", "Sales Funnel", "Re-engagement", "Newsletter", "Cold Outreach"],
+    prompt: (p, tone, kw) =>
+      `Write a 3-email ${p} sequence for a ${kw} business. Tone: ${tone}. Include subject lines, preview text, and body copy. Each email should have a clear purpose and CTA. Format as Email 1, Email 2, Email 3 with all components labeled.`,
+  },
+  {
+    id: "ads",
+    icon: "◇",
+    label: "Ad Copy",
+    desc: "High-converting paid ads",
+    platforms: ["Google Search", "Facebook/Meta", "Instagram Story", "YouTube Pre-roll", "LinkedIn Sponsored"],
+    prompt: (p, tone, kw) =>
+      `Write 3 high-converting ${p} ad variations for a ${kw} product/service. Tone: ${tone}. Include headlines, descriptions, and CTAs. Follow platform best practices. Label as Ad Variant A, B, C.`,
+  },
+  {
+    id: "product",
+    icon: "◉",
+    label: "Product Copy",
+    desc: "Descriptions that sell",
+    platforms: ["Amazon Listing", "Shopify Product", "Etsy Description", "Landing Page", "App Store"],
+    prompt: (p, tone, kw) =>
+      `Write compelling ${p} product copy for a ${kw} product. Tone: ${tone}. Include: a punchy title, a benefit-driven description, key features as bullet points, and a strong CTA. Make it SEO-friendly and conversion-optimized.`,
+  },
+  {
+    id: "proposal",
+    icon: "◐",
+    label: "Business Proposals",
+    desc: "Win clients effortlessly",
+    platforms: ["Freelance Proposal", "Agency Pitch", "Partnership Deck", "Investor Brief", "Grant Application"],
+    prompt: (p, tone, kw) =>
+      `Write a professional ${p} for a ${kw} business. Tone: ${tone}. Structure: Executive Summary, Problem Statement, Proposed Solution, Deliverables, Timeline, Pricing Overview, and Next Steps. Make it persuasive and polished.`,
+  },
+  {
+    id: "bio",
+    icon: "◑",
+    label: "Brand Bios",
+    desc: "Authority bios & about pages",
+    platforms: ["LinkedIn Bio", "Instagram Bio", "Speaker Bio", "Author Bio", "Website About Page"],
+    prompt: (p, tone, kw) =>
+      `Write 3 versions of a ${p} for a professional in the ${kw} industry. Tone: ${tone}. Versions: Short (under 50 words), Medium (100 words), Long (200 words). Each should establish authority, personality, and a clear value proposition.`,
+  },
+  {
+    id: "image",
+    icon: "IMG",
+    label: "Image Content",
+    desc: "Generate captions and copy from an image",
+    platforms: ["Caption Ideas", "Product Description", "Alt Text", "Ad Creative", "Social Post"],
+    acceptsImage: true,
+    prompt: (p, tone, kw) =>
+      `Analyze the uploaded image and create ${p} for ${kw}. Tone: ${tone}. Describe what is visible, infer the likely product or context, and write polished copy the user can publish or adapt immediately.`,
+  },
+  {
+    id: "seo",
+    icon: "SEO",
+    label: "SEO Content",
+    desc: "Search-friendly outlines and copy",
+    platforms: ["Blog Outline", "Meta Title", "Meta Description", "Keyword Brief", "FAQ Section"],
+    prompt: (p, tone, kw) =>
+      `Create ${p} content for the ${kw} niche. Tone: ${tone}. Make it search-friendly, clear, and useful. Include concise recommendations and practical copy the user can publish or adapt immediately.`,
+  },
+];
+
+const TONES = ["Professional", "Conversational", "Bold & Direct", "Luxury/Premium", "Friendly & Warm", "Urgent & Persuasive"];
+
+export default function ContentAIPro() {
+  const [activeView, setActiveView] = useState<AppView>("content");
+  const [activeTool, setActiveTool] = useState(TOOLS[0]);
+  const [platform, setPlatform] = useState(TOOLS[0].platforms[0]);
+  const [tone, setTone] = useState(TONES[0]);
+  const [keyword, setKeyword] = useState("");
+  const [output, setOutput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [charCount, setCharCount] = useState(0);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [isLightMode, setIsLightMode] = useState(false);
+  const outputRef = useRef<HTMLDivElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const [particles, setParticles] = useState<Particle[]>([]);
+  const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode>("signin");
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [authError, setAuthError] = useState("");
+  const [authForm, setAuthForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    password: "",
+  });
+  const [galleryAssets, setGalleryAssets] = useState<GalleryAsset[]>([]);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryUploading, setGalleryUploading] = useState(false);
+  const [galleryError, setGalleryError] = useState("");
+
+  useEffect(() => {
+    const p = Array.from({ length: 18 }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      y: Math.random() * 100,
+      size: Math.random() * 2 + 1,
+      speed: Math.random() * 20 + 10,
+      delay: Math.random() * 5,
+    }));
+    setParticles(p);
+  }, []);
+
+  useEffect(() => {
+    const storedSession = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!storedSession) {
+      setAuthChecking(false);
+      return;
+    }
+
+    let parsedSession: AuthSession | null = null;
+    try {
+      parsedSession = JSON.parse(storedSession) as AuthSession;
+    } catch {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      setAuthChecking(false);
+      return;
+    }
+
+    if (!parsedSession?.token) {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      setAuthChecking(false);
+      return;
+    }
+    const storedToken = parsedSession.token;
+
+    apiFetch<AuthResponse>("/api/me", {
+      headers: { Authorization: `Bearer ${storedToken}` },
+    })
+      .then(({ res, data }) => {
+        if (!res.ok || !data.user) throw new Error(data.error || "Session expired.");
+        const session = { token: storedToken, user: data.user };
+        setAuthSession(session);
+        window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+      })
+      .catch(() => {
+        window.localStorage.removeItem(AUTH_STORAGE_KEY);
+        setAuthSession(null);
+      })
+      .finally(() => setAuthChecking(false));
+  }, []);
+
+  useEffect(() => {
+    setPlatform(activeTool.platforms[0]);
+    setOutput("");
+    setError("");
+    if (!activeTool.acceptsImage) {
+      setUploadedImage(null);
+    }
+  }, [activeTool]);
+
+  useEffect(() => {
+    setCharCount(output.length);
+  }, [output]);
+
+  useEffect(() => {
+    if (IS_ANDROID_APP && authMode === "signup") {
+      setAuthMode("signin");
+    }
+  }, [authMode]);
+
+  const loadGallery = useCallback(async () => {
+    if (!authSession) return;
+    setGalleryLoading(true);
+    setGalleryError("");
+
+    try {
+      const { res, data } = await apiFetch<GalleryResponse>("/api/gallery", {
+        headers: { Authorization: `Bearer ${authSession.token}` },
+      });
+
+      if (!res.ok) throw new Error(data.error || "Could not load gallery.");
+      setGalleryAssets(data.assets || []);
+    } catch (e) {
+      setGalleryError(e instanceof Error ? e.message : "Could not load gallery.");
+    } finally {
+      setGalleryLoading(false);
+    }
+  }, [authSession]);
+
+  useEffect(() => {
+    if (authSession && activeView === "cyberGallery") {
+      loadGallery();
+    }
+  }, [authSession, activeView, loadGallery]);
+
+  const generate = async () => {
+    if (!keyword.trim()) {
+      setError("Please enter your niche or topic first.");
+      return;
+    }
+    if (activeTool.acceptsImage && !uploadedImage) {
+      setError("Please upload an image first.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    setOutput("");
+
+    try {
+      const { res, data } = await apiFetch<GenerateResponse>("/api/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authSession ? { Authorization: `Bearer ${authSession.token}` } : {}),
+        },
+        body: JSON.stringify({
+          prompt: activeTool.prompt(platform, tone, keyword),
+          source: APP_SOURCE,
+          tool: activeTool.label,
+          platform,
+          tone,
+          keyword,
+          imageData: uploadedImage?.dataUrl,
+          imageName: uploadedImage?.name,
+        }),
+      });
+
+      if (!res.ok) throw new Error(data.error || "Generation failed");
+      const text = data.text || "";
+      setOutput(text);
+      setHistory((prev) => [
+        { tool: activeTool.label, platform, keyword, tone, output: text, time: new Date().toLocaleTimeString() },
+        ...prev.slice(0, 9),
+      ]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Generation failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyOutput = async () => {
+    navigator.clipboard.writeText(output);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleImageUpload = (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Please upload a PNG, JPG, WebP, or GIF image.");
+      return;
+    }
+    if (file.size > 6 * 1024 * 1024) {
+      setError("Please upload an image under 6 MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        setError("Could not read that image. Please try another one.");
+        return;
+      }
+      setUploadedImage({ dataUrl: reader.result, name: file.name });
+      setError("");
+    };
+    reader.onerror = () => {
+      setError("Could not read that image. Please try another one.");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clearUploadedImage = () => {
+    setUploadedImage(null);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
+  };
+
+  const handleGalleryUpload = (file: File | undefined) => {
+    if (!file || !authSession) return;
+    if (!file.type.startsWith("image/")) {
+      setGalleryError("Please upload a valid image file.");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setGalleryError("Please upload an image under 2 MB.");
+      return;
+    }
+
+    setGalleryUploading(true);
+    setGalleryError("");
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        if (typeof reader.result !== "string") {
+          throw new Error("Could not read that image.");
+        }
+
+        const { res, data } = await apiFetch<GalleryResponse>("/api/gallery", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authSession.token}`,
+          },
+          body: JSON.stringify({
+            fileName: file.name,
+            mimeType: file.type,
+            sizeBytes: file.size,
+            dataUrl: reader.result,
+            source: APP_SOURCE,
+          }),
+        });
+
+        if (!res.ok || !data.asset) throw new Error(data.error || "Upload failed.");
+        setGalleryAssets((current) => [data.asset as GalleryAsset, ...current]);
+      } catch (e) {
+        setGalleryError(e instanceof Error ? e.message : "Upload failed.");
+      } finally {
+        setGalleryUploading(false);
+      }
+    };
+    reader.onerror = () => {
+      setGalleryError("Could not read that image.");
+      setGalleryUploading(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const deleteGalleryAsset = async (assetId: string) => {
+    if (!authSession) return;
+    setGalleryError("");
+
+    try {
+      const { res, data } = await apiFetch<GalleryResponse>(`/api/gallery?id=${encodeURIComponent(assetId)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${authSession.token}` },
+      });
+
+      if (!res.ok) throw new Error(data.error || "Could not delete image.");
+      setGalleryAssets((current) => current.filter((asset) => asset.id !== assetId));
+    } catch (e) {
+      setGalleryError(e instanceof Error ? e.message : "Could not delete image.");
+    }
+  };
+
+  const selectTool = (tool: Tool) => {
+    setActiveView("content");
+    setActiveTool(tool);
+    setShowMobileMenu(false);
+  };
+
+  const selectCyberGallery = () => {
+    setActiveView("cyberGallery");
+    setShowMobileMenu(false);
+  };
+
+  const handleAuthSubmit = async () => {
+    if (IS_ANDROID_APP && authMode === "signup") {
+      window.location.href = WEB_PORTAL_URL;
+      return;
+    }
+
+    setAuthError("");
+    setAuthLoading(true);
+
+    try {
+      const endpoint = authMode === "signup" ? "signup" : "signin";
+      const payload =
+        authMode === "signup"
+          ? authForm
+          : {
+              email: authForm.email,
+              password: authForm.password,
+            };
+
+      const { res, data } = await apiFetch<AuthResponse>(`/api/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok || !data.token || !data.user) {
+        throw new Error(data.error || "Authentication failed.");
+      }
+
+      const session = { token: data.token, user: data.user };
+      setAuthSession(session);
+      setAuthForm({ name: "", email: "", phone: "", password: "" });
+      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+    } catch (e) {
+      setAuthError(e instanceof Error ? e.message : "Authentication failed.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const signOut = () => {
+    setAuthSession(null);
+    setHistory([]);
+    setOutput("");
+    setShowMobileMenu(false);
+    setActiveView("content");
+    setGalleryAssets([]);
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+  };
+
+  const openPortalSignup = () => {
+    window.location.href = WEB_PORTAL_URL;
+  };
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+          --bg: #080a0e;
+          --surface: #0e1117;
+          --border: #1e2535;
+          --gold: #ef8137;
+          --gold-light: #ffad72;
+          --gold-dim: rgba(239,129,55,0.15);
+          --text: #e8e4d9;
+          --muted: #6b7280;
+          --accent: #3b82f6;
+          --header-bg: rgba(8,10,14,0.8);
+          --sidebar-bg: rgba(14,17,23,0.6);
+          --panel-bg: rgba(14,17,23,0.5);
+          --select-option-bg: #0e1117;
+          --button-text: #080a0e;
+          --mesh-gold: rgba(239,129,55,0.07);
+          --mesh-blue: rgba(59,130,246,0.05);
+          --mesh-soft: rgba(180,76,24,0.04);
+        }
+
+        .app.light {
+          --bg: #f7f4ec;
+          --surface: #fffaf0;
+          --border: #ded2b7;
+          --gold: #c45a20;
+          --gold-light: #8f3f17;
+          --gold-dim: rgba(196,90,32,0.12);
+          --text: #17140f;
+          --muted: #6f6659;
+          --accent: #2563eb;
+          --header-bg: rgba(247,244,236,0.86);
+          --sidebar-bg: rgba(255,250,240,0.68);
+          --panel-bg: rgba(255,250,240,0.62);
+          --select-option-bg: #fffaf0;
+          --button-text: #fffaf0;
+          --mesh-gold: rgba(196,90,32,0.12);
+          --mesh-blue: rgba(37,99,235,0.07);
+          --mesh-soft: rgba(143,63,23,0.06);
+        }
+
+        .app {
+          min-height: 100vh;
+          background: var(--bg);
+          color: var(--text);
+          font-family: 'DM Sans', sans-serif;
+          position: relative;
+          overflow-x: hidden;
+        }
+
+        .bg-mesh {
+          position: fixed; inset: 0; pointer-events: none; z-index: 0;
+          background: 
+            radial-gradient(ellipse 60% 40% at 20% 20%, var(--mesh-gold) 0%, transparent 60%),
+            radial-gradient(ellipse 50% 50% at 80% 80%, var(--mesh-blue) 0%, transparent 60%),
+            radial-gradient(ellipse 40% 60% at 50% 50%, var(--mesh-soft) 0%, transparent 70%);
+        }
+
+        .particle {
+          position: fixed;
+          border-radius: 50%;
+          background: var(--gold);
+          opacity: 0.25;
+          pointer-events: none;
+          animation: float linear infinite;
+          z-index: 0;
+        }
+
+        @keyframes float {
+          0% { transform: translateY(100vh) rotate(0deg); opacity: 0; }
+          10% { opacity: 0.25; }
+          90% { opacity: 0.15; }
+          100% { transform: translateY(-10vh) rotate(360deg); opacity: 0; }
+        }
+
+        .auth-shell {
+          position: relative;
+          z-index: 1;
+          min-height: 100vh;
+          display: grid;
+          place-items: center;
+          padding: 24px;
+        }
+
+        .auth-panel {
+          width: min(440px, 100%);
+          background: var(--panel-bg);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 28px;
+          backdrop-filter: blur(14px);
+          box-shadow: 0 22px 80px rgba(0,0,0,0.28);
+        }
+
+        .auth-logo {
+          width: 230px;
+          height: 66px;
+          margin-bottom: 18px;
+        }
+
+        .auth-title {
+          font-family: 'Playfair Display', serif;
+          color: var(--text);
+          font-size: 30px;
+          font-weight: 800;
+          margin-bottom: 6px;
+        }
+
+        .auth-subtitle {
+          color: var(--muted);
+          font-size: 14px;
+          line-height: 1.5;
+          margin-bottom: 22px;
+        }
+
+        .auth-tabs {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          margin-bottom: 18px;
+        }
+
+        .auth-tab {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          color: var(--muted);
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 14px;
+          padding: 10px;
+          transition: all 0.2s;
+        }
+
+        .auth-tab.active {
+          background: var(--gold-dim);
+          border-color: rgba(239,129,55,0.4);
+          color: var(--gold-light);
+        }
+
+        .auth-form {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .auth-input {
+          width: 100%;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          color: var(--text);
+          font-family: 'DM Sans', sans-serif;
+          font-size: 15px;
+          outline: none;
+          padding: 13px 14px;
+          transition: border-color 0.2s;
+        }
+
+        .auth-input:focus { border-color: var(--gold); }
+        .auth-input::placeholder { color: var(--muted); }
+
+        .auth-button {
+          background: linear-gradient(135deg, #b44c18 0%, #ef8137 50%, #b44c18 100%);
+          border: 0;
+          border-radius: 12px;
+          color: var(--button-text);
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 15px;
+          font-weight: 800;
+          letter-spacing: 0.03em;
+          margin-top: 4px;
+          padding: 14px;
+          text-transform: uppercase;
+        }
+
+        .auth-button:disabled {
+          cursor: not-allowed;
+          opacity: 0.65;
+        }
+
+        .auth-error {
+          background: rgba(248,113,113,0.12);
+          border: 1px solid rgba(248,113,113,0.28);
+          border-radius: 10px;
+          color: #f87171;
+          font-size: 13px;
+          padding: 10px 12px;
+        }
+
+        .account-chip {
+          align-items: center;
+          color: var(--muted);
+          display: flex;
+          font-size: 13px;
+          gap: 10px;
+        }
+
+        .account-name {
+          color: var(--text);
+          font-weight: 600;
+        }
+
+        .main-grid {
+          position: relative; z-index: 1;
+          display: grid;
+          grid-template-columns: 260px 1fr 320px;
+          grid-template-rows: auto 1fr;
+          min-height: 100vh;
+          gap: 0;
+          width: 100%;
+          overflow-x: hidden;
+        }
+
+        .header {
+          grid-column: 1 / -1;
+          min-height: 124px;
+          padding: 18px 28px;
+          border-bottom: 1px solid var(--border);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: var(--header-bg);
+          backdrop-filter: blur(12px);
+          position: sticky; top: 0; z-index: 100;
+        }
+
+        .logo {
+          display: flex;
+          align-items: center;
+          width: 250px;
+          height: 72px;
+          background: transparent;
+          border: 0;
+          padding: 0;
+        }
+
+        .logo-img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          object-position: left center;
+          display: block;
+        }
+
+        .header-badge {
+          background: var(--gold-dim);
+          border: 1px solid rgba(239,129,55,0.3);
+          color: var(--gold-light);
+          padding: 5px 14px;
+          border-radius: 100px;
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+        }
+
+        .header-right {
+          display: flex; align-items: center; gap: 16px;
+          min-width: 0;
+        }
+
+        .mobile-menu-toggle {
+          display: none;
+          align-items: center;
+          gap: 10px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          color: var(--text);
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 14px;
+          font-weight: 700;
+          padding: 10px 12px;
+          min-width: 0;
+        }
+
+        .burger-lines {
+          display: inline-flex;
+          flex-direction: column;
+          gap: 4px;
+          flex: 0 0 auto;
+        }
+
+        .burger-lines span {
+          width: 18px;
+          height: 2px;
+          background: var(--gold-light);
+          border-radius: 100px;
+        }
+
+        .mobile-menu-name {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .mobile-menu-panel {
+          display: none;
+        }
+
+        .history-btn, .theme-btn {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          padding: 7px 14px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 13px;
+          font-family: 'DM Sans', sans-serif;
+          transition: all 0.2s;
+        }
+
+        .history-btn:hover, .theme-btn:hover {
+          border-color: var(--gold);
+          color: var(--gold);
+        }
+
+        /* Sidebar */
+        .sidebar {
+          border-right: 1px solid var(--border);
+          padding: 24px 16px;
+          background: var(--sidebar-bg);
+          display: flex; flex-direction: column; gap: 4px;
+          overflow-y: auto;
+        }
+
+        .sidebar-label {
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(--muted);
+          padding: 0 10px;
+          margin-bottom: 8px;
+          margin-top: 4px;
+        }
+
+        .tool-btn {
+          width: 100%;
+          background: transparent;
+          border: 1px solid transparent;
+          border-radius: 10px;
+          padding: 12px 14px;
+          cursor: pointer;
+          text-align: left;
+          transition: all 0.2s;
+          display: flex; align-items: flex-start; gap: 12px;
+          font-family: 'DM Sans', sans-serif;
+        }
+
+        .tool-btn:hover {
+          background: rgba(255,255,255,0.03);
+          border-color: var(--border);
+        }
+
+        .tool-btn.active {
+          background: var(--gold-dim);
+          border-color: rgba(239,129,55,0.35);
+        }
+
+        .tool-icon {
+          font-size: 20px;
+          color: var(--muted);
+          line-height: 1;
+          margin-top: 1px;
+          min-width: 20px;
+        }
+
+        .tool-btn.active .tool-icon { color: var(--gold); }
+
+        .tool-info { flex: 1; }
+        .tool-name {
+          font-size: 14px; font-weight: 500;
+          color: var(--text);
+          display: block; margin-bottom: 2px;
+        }
+        .tool-desc {
+          font-size: 11px; color: var(--muted);
+          display: block;
+        }
+
+        .app-switch-btn {
+          width: 100%;
+          background: rgba(239,129,55,0.08);
+          border: 1px solid rgba(239,129,55,0.28);
+          border-radius: 12px;
+          color: var(--text);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          font-family: 'DM Sans', sans-serif;
+          margin-bottom: 14px;
+          padding: 13px 14px;
+          text-align: left;
+          transition: all 0.2s;
+        }
+
+        .app-switch-btn:hover,
+        .app-switch-btn.active {
+          background: var(--gold-dim);
+          border-color: rgba(239,129,55,0.45);
+        }
+
+        .app-switch-icon {
+          color: var(--gold-light);
+          font-family: 'DM Mono', monospace;
+          font-size: 15px;
+          font-weight: 700;
+          min-width: 34px;
+        }
+
+        .gallery-toolbar {
+          align-items: center;
+          display: flex;
+          gap: 12px;
+          justify-content: space-between;
+          margin-bottom: 22px;
+        }
+
+        .gallery-upload-btn,
+        .gallery-refresh-btn {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          color: var(--text);
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 13px;
+          font-weight: 700;
+          padding: 11px 14px;
+          transition: all 0.2s;
+        }
+
+        .gallery-upload-btn {
+          background: linear-gradient(135deg, #b44c18 0%, #ef8137 100%);
+          border: 0;
+          color: var(--button-text);
+        }
+
+        .gallery-refresh-btn:hover {
+          border-color: var(--gold);
+          color: var(--gold);
+        }
+
+        .gallery-grid {
+          display: grid;
+          gap: 14px;
+          grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        }
+
+        .gallery-card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          overflow: hidden;
+        }
+
+        .gallery-card img {
+          aspect-ratio: 1;
+          background: rgba(0,0,0,0.2);
+          display: block;
+          object-fit: cover;
+          width: 100%;
+        }
+
+        .gallery-card-meta {
+          display: grid;
+          gap: 8px;
+          padding: 10px;
+        }
+
+        .gallery-file-name {
+          color: var(--text);
+          font-size: 12px;
+          font-weight: 700;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .gallery-file-detail {
+          color: var(--muted);
+          font-size: 11px;
+        }
+
+        .gallery-delete-btn {
+          background: transparent;
+          border: 1px solid rgba(248,113,113,0.28);
+          border-radius: 8px;
+          color: #f87171;
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 12px;
+          padding: 7px 9px;
+        }
+
+        .gallery-empty {
+          background: var(--surface);
+          border: 1px dashed var(--border);
+          border-radius: 12px;
+          color: var(--muted);
+          line-height: 1.6;
+          padding: 26px;
+          text-align: center;
+        }
+
+        /* Center content */
+        .center {
+          padding: 32px;
+          display: flex; flex-direction: column; gap: 0;
+          overflow-y: auto;
+          min-width: 0;
+        }
+
+        .section-title {
+          font-family: 'Playfair Display', serif;
+          font-size: 28px; font-weight: 700;
+          color: var(--text);
+          margin-bottom: 6px;
+          letter-spacing: -0.02em;
+        }
+
+        .section-subtitle {
+          font-size: 14px; color: var(--muted);
+          margin-bottom: 28px;
+        }
+
+        .input-group {
+          margin-bottom: 20px;
+        }
+
+        .input-label {
+          display: block;
+          font-size: 11px; font-weight: 600;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--muted);
+          margin-bottom: 8px;
+        }
+
+        .text-input {
+          width: 100%;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 14px 16px;
+          color: var(--text);
+          font-size: 15px;
+          font-family: 'DM Sans', sans-serif;
+          outline: none;
+          transition: border-color 0.2s;
+        }
+
+        .text-input::placeholder { color: var(--muted); }
+        .text-input:focus { border-color: var(--gold); }
+        textarea.text-input { resize: vertical; min-height: 96px; line-height: 1.55; }
+
+        .grid-2 {
+          display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+          margin-bottom: 20px;
+        }
+
+        .select-input {
+          width: 100%;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 13px 16px;
+          color: var(--text);
+          font-size: 14px;
+          font-family: 'DM Sans', sans-serif;
+          outline: none;
+          cursor: pointer;
+          appearance: none;
+          background-repeat: no-repeat;
+          background-position: right 14px center;
+          transition: border-color 0.2s;
+        }
+
+        .select-input option { background: var(--select-option-bg); }
+        .select-input:focus { border-color: var(--gold); }
+
+        .upload-zone {
+          background: var(--surface);
+          border: 1px dashed rgba(239,129,55,0.45);
+          border-radius: 12px;
+          padding: 16px;
+          margin-bottom: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+        }
+
+        .upload-copy {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .upload-title {
+          color: var(--text);
+          font-size: 14px;
+          font-weight: 600;
+        }
+
+        .upload-note {
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .upload-btn,
+        .remove-image-btn {
+          background: transparent;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          color: var(--text);
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 13px;
+          padding: 8px 12px;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+
+        .upload-btn:hover,
+        .remove-image-btn:hover {
+          border-color: var(--gold);
+          color: var(--gold);
+        }
+
+        .image-preview {
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          margin-bottom: 20px;
+          overflow: hidden;
+          background: var(--surface);
+        }
+
+        .image-preview img {
+          display: block;
+          width: 100%;
+          max-height: 240px;
+          object-fit: contain;
+          background: rgba(0,0,0,0.18);
+        }
+
+        .image-preview-meta {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 10px 12px;
+          color: var(--muted);
+          font-size: 12px;
+          min-width: 0;
+        }
+
+        .image-preview-meta span {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .generate-btn {
+          width: 100%;
+          background: linear-gradient(135deg, #b44c18 0%, #ef8137 50%, #b44c18 100%);
+          background-size: 200% 200%;
+          border: none;
+          border-radius: 12px;
+          padding: 16px;
+          color: var(--button-text);
+          font-size: 15px;
+          font-weight: 700;
+          font-family: 'DM Sans', sans-serif;
+          letter-spacing: 0.03em;
+          cursor: pointer;
+          transition: all 0.3s;
+          display: flex; align-items: center; justify-content: center; gap: 10px;
+          margin-bottom: 24px;
+          text-transform: uppercase;
+        }
+
+        .generate-btn:hover:not(:disabled) {
+          background-position: 100% 100%;
+          transform: translateY(-1px);
+          box-shadow: 0 8px 24px rgba(239,129,55,0.35);
+        }
+
+        .generate-btn:disabled {
+          opacity: 0.6; cursor: not-allowed; transform: none;
+        }
+
+        .spinner {
+          width: 16px; height: 16px;
+          border: 2px solid rgba(0,0,0,0.3);
+          border-top-color: #080a0e;
+          border-radius: 50%;
+          animation: spin 0.7s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .output-box {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          overflow: hidden;
+          flex: 1;
+        }
+
+        .output-header {
+          padding: 12px 16px;
+          border-bottom: 1px solid var(--border);
+          display: flex; align-items: center; justify-content: space-between;
+        }
+
+        .output-title {
+          font-size: 12px; font-weight: 600;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--muted);
+        }
+
+        .output-actions {
+          display: flex; gap: 8px; align-items: center;
+        }
+
+        .char-count {
+          font-family: 'DM Mono', monospace;
+          font-size: 11px;
+          color: var(--muted);
+        }
+
+        .copy-btn {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          padding: 5px 12px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 12px;
+          font-family: 'DM Sans', sans-serif;
+          transition: all 0.2s;
+        }
+
+        .copy-btn:hover { border-color: var(--gold); color: var(--gold); }
+        .copy-btn.copied { border-color: #22c55e; color: #22c55e; }
+
+        .output-content {
+          padding: 20px;
+          min-height: 280px;
+          max-height: 420px;
+          overflow-y: auto;
+          overflow-wrap: anywhere;
+          font-size: 14px;
+          line-height: 1.75;
+          color: var(--text);
+          white-space: pre-wrap;
+          font-family: 'DM Sans', sans-serif;
+        }
+
+        .output-placeholder {
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          height: 280px;
+          gap: 12px;
+          color: var(--muted);
+          text-align: center;
+        }
+
+        .placeholder-icon {
+          font-size: 36px; opacity: 0.3;
+        }
+
+        .placeholder-text {
+          font-size: 14px;
+        }
+
+        .error-msg {
+          background: rgba(239,68,68,0.1);
+          border: 1px solid rgba(239,68,68,0.3);
+          color: #f87171;
+          padding: 12px 16px;
+          border-radius: 10px;
+          font-size: 13px;
+          margin-bottom: 16px;
+        }
+
+        /* Right panel */
+        .right-panel {
+          border-left: 1px solid var(--border);
+          padding: 24px 20px;
+          background: var(--panel-bg);
+          overflow-y: auto;
+        }
+
+        .panel-section {
+          margin-bottom: 28px;
+        }
+
+        .panel-heading {
+          font-size: 10px; font-weight: 700;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(--muted);
+          margin-bottom: 14px;
+          display: flex; align-items: center; gap: 8px;
+        }
+
+        .panel-heading::after {
+          content: '';
+          flex: 1;
+          height: 1px;
+          background: var(--border);
+        }
+
+        .stat-grid {
+          display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+        }
+
+        .stat-card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 14px 12px;
+          text-align: center;
+        }
+
+        .stat-value {
+          font-family: 'Playfair Display', serif;
+          font-size: 22px; font-weight: 700;
+          color: var(--gold);
+          display: block;
+          margin-bottom: 4px;
+        }
+
+        .stat-label {
+          font-size: 10px; color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+        }
+
+        .pricing-card {
+          background: var(--gold-dim);
+          border: 1px solid rgba(239,129,55,0.25);
+          border-radius: 12px;
+          padding: 18px;
+          margin-bottom: 12px;
+        }
+
+        .pricing-tier {
+          font-size: 12px; font-weight: 600;
+          color: var(--gold);
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+          margin-bottom: 4px;
+        }
+
+        .pricing-price {
+          font-family: 'Playfair Display', serif;
+          font-size: 26px; font-weight: 900;
+          color: var(--text);
+          margin-bottom: 2px;
+        }
+
+        .pricing-note { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+
+        .feature-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+        .feature-item {
+          display: flex; align-items: center; gap: 8px;
+          font-size: 12px; color: var(--text);
+        }
+        .feature-dot {
+          width: 4px; height: 4px; border-radius: 50%;
+          background: var(--gold); flex-shrink: 0;
+        }
+
+        .income-strip {
+          background: linear-gradient(135deg, rgba(239,129,55,0.12), rgba(180,76,24,0.06));
+          border: 1px solid rgba(239,129,55,0.2);
+          border-radius: 10px;
+          padding: 14px;
+          margin-bottom: 12px;
+        }
+
+        .income-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+        .income-value { font-family: 'Playfair Display', serif; font-size: 18px; color: var(--gold-light); font-weight: 700; }
+
+        .platform-tags {
+          display: flex; flex-wrap: wrap; gap: 6px;
+        }
+
+        .platform-tag {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 100px;
+          padding: 4px 10px;
+          font-size: 11px;
+          color: var(--muted);
+        }
+
+        .history-panel {
+          position: fixed; inset: 0; z-index: 200;
+          background: rgba(8,10,14,0.9);
+          backdrop-filter: blur(8px);
+          display: flex; align-items: center; justify-content: center;
+        }
+
+        .history-modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          width: 620px; max-width: 90vw;
+          max-height: 70vh;
+          overflow-y: auto;
+          padding: 28px;
+        }
+
+        .history-modal-header {
+          display: flex; align-items: center; justify-content: space-between;
+          margin-bottom: 20px;
+        }
+
+        .close-btn {
+          background: transparent; border: 1px solid var(--border);
+          color: var(--muted); padding: 6px 12px; border-radius: 8px;
+          cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 13px;
+          transition: all 0.2s;
+        }
+
+        .close-btn:hover { border-color: #ef4444; color: #ef4444; }
+
+        .history-item {
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 14px;
+          margin-bottom: 10px;
+          cursor: pointer;
+          transition: border-color 0.2s;
+        }
+
+        .history-item:hover { border-color: var(--gold); }
+        .history-meta { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+        .history-preview { font-size: 13px; color: var(--text); line-height: 1.5; }
+
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        .fade-in { animation: fadeIn 0.4s ease forwards; }
+
+        @media (max-width: 900px) {
+          .main-grid {
+            grid-template-columns: 1fr;
+            grid-template-rows: auto;
+          }
+          .right-panel, .sidebar { display: none; }
+          .header {
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 10px 12px;
+            min-height: 0;
+            padding: 14px 16px;
+          }
+
+          .logo {
+            flex: 1 1 190px;
+            height: 58px;
+            max-width: 220px;
+            min-width: 0;
+            width: auto;
+          }
+
+          .header-badge {
+            font-size: 10px;
+            padding: 4px 10px;
+            align-self: center;
+          }
+
+          .header-right {
+            flex: 0 0 auto;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-end;
+          }
+
+          .header-right > .account-chip,
+          .header-right > .theme-btn,
+          .header-right > .history-btn {
+            display: none;
+          }
+
+          .mobile-menu-toggle {
+            display: inline-flex;
+            max-width: 190px;
+          }
+
+          .history-btn, .theme-btn {
+            padding: 8px 10px;
+            text-align: center;
+            white-space: nowrap;
+          }
+
+          .mobile-menu-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            display: none;
+            flex: 1 1 100%;
+            padding: 12px;
+            width: 100%;
+          }
+
+          .mobile-menu-panel.open {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+          }
+
+          .mobile-profile {
+            border-bottom: 1px solid var(--border);
+            color: var(--muted);
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            padding: 2px 2px 12px;
+          }
+
+          .mobile-profile-label,
+          .mobile-menu-label {
+            color: var(--muted);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+          }
+
+          .mobile-profile-name {
+            color: var(--text);
+            font-size: 16px;
+            font-weight: 800;
+          }
+
+          .mobile-menu-tools {
+            display: grid;
+            gap: 6px;
+          }
+
+          .mobile-menu-tools .app-switch-btn {
+            margin-bottom: 6px;
+          }
+
+          .mobile-menu-tools .tool-btn {
+            border-color: var(--border);
+            padding: 12px;
+          }
+
+          .mobile-menu-actions {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .mobile-menu-actions .history-btn,
+          .mobile-menu-actions .theme-btn {
+            width: 100%;
+          }
+
+          .mobile-menu-actions .signout-action {
+            grid-column: 1 / -1;
+          }
+
+          .center {
+            padding: 18px 16px 24px;
+          }
+
+          .section-title {
+            font-size: 26px;
+          }
+
+          .section-subtitle {
+            line-height: 1.45;
+            margin-bottom: 22px;
+          }
+
+          .grid-2 {
+            grid-template-columns: 1fr;
+            gap: 14px;
+          }
+
+          .upload-zone {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .upload-btn,
+          .remove-image-btn {
+            width: 100%;
+          }
+
+          .image-preview-meta {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .generate-btn {
+            min-height: 52px;
+            padding: 14px;
+          }
+
+          .output-header {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 8px;
+          }
+
+          .output-content {
+            max-height: none;
+            min-height: 240px;
+            padding: 16px;
+          }
+
+          .gallery-toolbar {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .gallery-upload-btn,
+          .gallery-refresh-btn {
+            width: 100%;
+          }
+
+          .gallery-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+      `}</style>
+
+      <div className={`app ${isLightMode ? "light" : ""}`}>
+        <div className="bg-mesh" />
+        {particles.map((p) => (
+          <div
+            key={p.id}
+            className="particle"
+            style={{
+              left: `${p.x}%`,
+              width: p.size,
+              height: p.size,
+              animationDuration: `${p.speed}s`,
+              animationDelay: `${p.delay}s`,
+            }}
+          />
+        ))}
+
+        {!authSession && (
+          <div className="auth-shell">
+            <div className="auth-panel">
+              <div className="auth-logo">
+                <img
+                  className="logo-img"
+                  src={isLightMode ? "/content-ai-pro-logo-dark.png" : "/content-ai-pro-logo.png"}
+                  alt="Content AI Pro"
+                />
+              </div>
+              <div className="auth-title">{authMode === "signup" ? "Create Account" : "Welcome Back"}</div>
+              <div className="auth-subtitle">
+                {authChecking
+                  ? "Checking your session..."
+                  : IS_ANDROID_APP
+                    ? "Sign in with the account you created on the Content AI Pro web portal."
+                    : "Sign in to use Content AI Pro across the web portal and Android app."}
+              </div>
+
+              {!authChecking && (
+                <>
+                  <div className="auth-tabs">
+                    <button
+                      className={`auth-tab ${authMode === "signin" ? "active" : ""}`}
+                      type="button"
+                      onClick={() => {
+                        setAuthMode("signin");
+                        setAuthError("");
+                      }}
+                    >
+                      Sign In
+                    </button>
+                    <button
+                      className="auth-tab"
+                      type="button"
+                      onClick={() => {
+                        if (IS_ANDROID_APP) {
+                          openPortalSignup();
+                          return;
+                        }
+                        setAuthError("");
+                        setAuthMode("signup");
+                      }}
+                    >
+                      {IS_ANDROID_APP ? "Create on Web" : "Create Account"}
+                    </button>
+                  </div>
+
+                  <form
+                    className="auth-form"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleAuthSubmit();
+                    }}
+                  >
+                    {authMode === "signup" && (
+                      <>
+                        <input
+                          className="auth-input"
+                          placeholder="Name"
+                          value={authForm.name}
+                          onChange={(e) => setAuthForm((current) => ({ ...current, name: e.target.value }))}
+                        />
+                        <input
+                          className="auth-input"
+                          placeholder="Phone Number"
+                          value={authForm.phone}
+                          onChange={(e) => setAuthForm((current) => ({ ...current, phone: e.target.value }))}
+                        />
+                      </>
+                    )}
+                    <input
+                      className="auth-input"
+                      placeholder="Email"
+                      type="email"
+                      value={authForm.email}
+                      onChange={(e) => setAuthForm((current) => ({ ...current, email: e.target.value }))}
+                    />
+                    <input
+                      className="auth-input"
+                      placeholder="Password"
+                      type="password"
+                      value={authForm.password}
+                      onChange={(e) => setAuthForm((current) => ({ ...current, password: e.target.value }))}
+                    />
+                    {authError && <div className="auth-error">{authError}</div>}
+                    <button className="auth-button" type="submit" disabled={authLoading}>
+                      {authLoading ? "Please wait..." : authMode === "signup" ? "Create Account" : "Sign In"}
+                    </button>
+                  </form>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {authSession && showHistory && (
+          <div className="history-panel" onClick={() => setShowHistory(false)}>
+            <div className="history-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="history-modal-header">
+                <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 700 }}>
+                  Generation History
+                </span>
+                <button className="close-btn" onClick={() => setShowHistory(false)}>Close</button>
+              </div>
+              {history.length === 0 ? (
+                <p style={{ color: "var(--muted)", fontSize: 14 }}>No history yet. Generate some content first.</p>
+              ) : (
+                history.map((h, i) => (
+                  <div
+                    key={i}
+                    className="history-item"
+                    onClick={() => { setOutput(h.output); setShowHistory(false); }}
+                  >
+                    <div className="history-meta">
+                      {h.tool} · {h.platform} · {h.tone} · {h.keyword} · {h.time}
+                    </div>
+                    <div className="history-preview">{h.output.slice(0, 120)}...</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {authSession && <div className="main-grid">
+          {/* Header */}
+          <header className="header">
+            <div className="logo">
+              <img
+                className="logo-img"
+                src={isLightMode ? "/content-ai-pro-logo-dark.png" : "/content-ai-pro-logo.png"}
+                alt="Content AI Pro"
+              />
+            </div>
+            <div className="header-badge">✦ Pro Suite</div>
+            <div className="header-right">
+              <button
+                className="mobile-menu-toggle"
+                type="button"
+                onClick={() => setShowMobileMenu((current) => !current)}
+                aria-expanded={showMobileMenu}
+                aria-controls="mobile-profile-menu"
+              >
+                <span className="burger-lines" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                <span className="mobile-menu-name">{authSession.user.name || "Profile"}</span>
+              </button>
+              <div className="account-chip">
+                <span className="account-name">{authSession.user.name}</span>
+                <button className="history-btn" type="button" onClick={signOut}>
+                  Sign Out
+                </button>
+              </div>
+              <button
+                className="theme-btn"
+                onClick={() => setIsLightMode((current) => !current)}
+                type="button"
+              >
+                {isLightMode ? "Dark Mode" : "Light Mode"}
+              </button>
+              <button className="history-btn" onClick={() => setShowHistory(true)}>
+                ◈ History ({history.length})
+              </button>
+            </div>
+            <div
+              className={`mobile-menu-panel ${showMobileMenu ? "open" : ""}`}
+              id="mobile-profile-menu"
+            >
+              <div className="mobile-profile">
+                <span className="mobile-profile-label">Profile</span>
+                <span className="mobile-profile-name">{authSession.user.name}</span>
+                <span>{authSession.user.email}</span>
+              </div>
+              <div className="mobile-menu-label">Content Tools</div>
+              <div className="mobile-menu-tools">
+                <button
+                  className={`app-switch-btn ${activeView === "cyberGallery" ? "active" : ""}`}
+                  onClick={selectCyberGallery}
+                >
+                  <span className="app-switch-icon">CG</span>
+                  <div className="tool-info">
+                    <span className="tool-name">Cyber Gallery</span>
+                    <span className="tool-desc">Upload and manage user images</span>
+                  </div>
+                </button>
+                {TOOLS.map((t) => (
+                  <button
+                    key={t.id}
+                    className={`tool-btn ${activeView === "content" && activeTool.id === t.id ? "active" : ""}`}
+                    onClick={() => selectTool(t)}
+                  >
+                    <span className="tool-icon">{t.icon}</span>
+                    <div className="tool-info">
+                      <span className="tool-name">{t.label}</span>
+                      <span className="tool-desc">{t.desc}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="mobile-menu-actions">
+                <button
+                  className="theme-btn"
+                  onClick={() => setIsLightMode((current) => !current)}
+                  type="button"
+                >
+                  {isLightMode ? "Dark Mode" : "Light Mode"}
+                </button>
+                <button
+                  className="history-btn"
+                  type="button"
+                  onClick={() => {
+                    setShowMobileMenu(false);
+                    setShowHistory(true);
+                  }}
+                >
+                  History ({history.length})
+                </button>
+                <button className="history-btn signout-action" type="button" onClick={signOut}>
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* Sidebar */}
+          <aside className="sidebar">
+            <button
+              className={`app-switch-btn ${activeView === "cyberGallery" ? "active" : ""}`}
+              onClick={selectCyberGallery}
+            >
+              <span className="app-switch-icon">CG</span>
+              <div className="tool-info">
+                <span className="tool-name">Cyber Gallery</span>
+                <span className="tool-desc">Upload and manage images</span>
+              </div>
+            </button>
+            <div className="sidebar-label">Content Tools</div>
+            {TOOLS.map((t) => (
+              <button
+                key={t.id}
+                className={`tool-btn ${activeView === "content" && activeTool.id === t.id ? "active" : ""}`}
+                onClick={() => selectTool(t)}
+              >
+                <span className="tool-icon">{t.icon}</span>
+                <div className="tool-info">
+                  <span className="tool-name">{t.label}</span>
+                  <span className="tool-desc">{t.desc}</span>
+                </div>
+              </button>
+            ))}
+          </aside>
+
+          {/* Center */}
+          <main className="center">
+            {activeView === "cyberGallery" ? (
+              <>
+                <div className="section-title">Cyber Gallery</div>
+                <div className="section-subtitle">
+                  Upload selected images to your existing Content AI Pro database under this user account.
+                </div>
+
+                <div className="gallery-toolbar">
+                  <input
+                    id="cyber-gallery-upload"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    style={{ display: "none" }}
+                    onChange={(e) => handleGalleryUpload(e.target.files?.[0])}
+                  />
+                  <label className="gallery-upload-btn" htmlFor="cyber-gallery-upload">
+                    {galleryUploading ? "Uploading..." : "Upload Image"}
+                  </label>
+                  <button className="gallery-refresh-btn" type="button" onClick={loadGallery}>
+                    {galleryLoading ? "Refreshing..." : "Refresh Gallery"}
+                  </button>
+                </div>
+
+                {galleryError && <div className="error-msg">{galleryError}</div>}
+
+                {galleryLoading && galleryAssets.length === 0 ? (
+                  <div className="gallery-empty">Loading your gallery...</div>
+                ) : galleryAssets.length === 0 ? (
+                  <div className="gallery-empty">
+                    No images saved yet. Upload an image here and it will be stored in the database with your user ID.
+                  </div>
+                ) : (
+                  <div className="gallery-grid">
+                    {galleryAssets.map((asset) => (
+                      <div className="gallery-card" key={asset.id}>
+                        <img src={asset.data_url} alt={asset.file_name} />
+                        <div className="gallery-card-meta">
+                          <div className="gallery-file-name">{asset.file_name}</div>
+                          <div className="gallery-file-detail">
+                            {(asset.size_bytes / 1024).toFixed(1)} KB · {new Date(asset.created_at).toLocaleDateString()}
+                          </div>
+                          <button
+                            className="gallery-delete-btn"
+                            type="button"
+                            onClick={() => deleteGalleryAsset(asset.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+            <div className="section-title">{activeTool.label}</div>
+            <div className="section-subtitle">{activeTool.desc} — powered by Claude AI</div>
+
+            <div className="input-group">
+              <label className="input-label">Your Niche / Topic / Brand</label>
+              <input
+                className="text-input"
+                placeholder="e.g. fitness coaching, SaaS startup, luxury skincare..."
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && generate()}
+              />
+            </div>
+
+            <div className="grid-2">
+              <div>
+                <label className="input-label">Platform / Format</label>
+                <select
+                  className="select-input"
+                  value={platform}
+                  onChange={(e) => setPlatform(e.target.value)}
+                >
+                  {activeTool.platforms.map((p) => (
+                    <option key={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="input-label">Tone of Voice</label>
+                <select
+                  className="select-input"
+                  value={tone}
+                  onChange={(e) => setTone(e.target.value)}
+                >
+                  {TONES.map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {activeTool.acceptsImage && (
+              <>
+                <div className="upload-zone">
+                  <div className="upload-copy">
+                    <span className="upload-title">Upload image</span>
+                    <span className="upload-note">PNG, JPG, WebP, or GIF under 6 MB</span>
+                  </div>
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    style={{ display: "none" }}
+                    onChange={(e) => handleImageUpload(e.target.files?.[0])}
+                  />
+                  <button
+                    className="upload-btn"
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                  >
+                    Choose Image
+                  </button>
+                </div>
+
+                {uploadedImage && (
+                  <div className="image-preview">
+                    <img src={uploadedImage.dataUrl} alt={uploadedImage.name} />
+                    <div className="image-preview-meta">
+                      <span>{uploadedImage.name}</span>
+                      <button className="remove-image-btn" type="button" onClick={clearUploadedImage}>
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {error && <div className="error-msg">{error}</div>}
+
+            <button className="generate-btn" onClick={generate} disabled={loading}>
+              {loading ? (
+                <>
+                  <div className="spinner" />
+                  Generating...
+                </>
+              ) : (
+                <>✦ Generate Content</>
+              )}
+            </button>
+
+            <div className="output-box">
+              <div className="output-header">
+                <span className="output-title">Output</span>
+                <div className="output-actions">
+                  {output && (
+                    <>
+                      <span className="char-count">{charCount} chars</span>
+                      <button
+                        className={`copy-btn ${copied ? "copied" : ""}`}
+                        onClick={copyOutput}
+                      >
+                        {copied ? "✓ Copied" : "Copy All"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="output-content" ref={outputRef}>
+                {output ? (
+                  <div className="fade-in">{output}</div>
+                ) : (
+                  <div className="output-placeholder">
+                    <div className="placeholder-icon">{activeTool.icon}</div>
+                    <div className="placeholder-text">
+                      Enter your niche and click Generate<br />
+                      <span style={{ fontSize: 12, opacity: 0.6 }}>Results appear here instantly</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+              </>
+            )}
+          </main>
+
+          {/* Right Panel */}
+          <aside className="right-panel">
+            <div className="panel-section">
+              <div className="panel-heading">Usage Stats</div>
+              <div className="stat-grid">
+                <div className="stat-card">
+                  <span className="stat-value">{history.length}</span>
+                  <span className="stat-label">Generated</span>
+                </div>
+                <div className="stat-card">
+                  <span className="stat-value">{TOOLS.length}</span>
+                  <span className="stat-label">Tools</span>
+                </div>
+                <div className="stat-card">
+                  <span className="stat-value">∞</span>
+                  <span className="stat-label">Exports</span>
+                </div>
+                <div className="stat-card">
+                  <span className="stat-value">AI</span>
+                  <span className="stat-label">Powered</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="panel-section">
+              <div className="panel-heading">Income Model</div>
+              <div className="income-strip">
+                <div className="income-label">Target: $200/day</div>
+                <div className="income-value">$29/mo × 210 users</div>
+              </div>
+              <div className="income-strip">
+                <div className="income-label">Sell on Gumroad / LemonSqueezy</div>
+                <div className="income-value">$49 lifetime deal</div>
+              </div>
+              <div className="income-strip">
+                <div className="income-label">Monthly Recurring Revenue</div>
+                <div className="income-value">$6,090 / month</div>
+              </div>
+            </div>
+
+            <div className="panel-section">
+              <div className="panel-heading">Pricing Tier</div>
+              <div className="pricing-card">
+                <div className="pricing-tier">Pro Plan</div>
+                <div className="pricing-price">$29<span style={{ fontSize: 14, fontWeight: 400, color: "var(--muted)" }}>/mo</span></div>
+                <div className="pricing-note">Or $49 lifetime access</div>
+                <ul className="feature-list">
+                  {["7 AI Content Tools", "SEO Content Generator", "Unlimited Generations", "All Platforms & Tones", "Generation History", "One-click Copy", "Priority Support"].map((f) => (
+                    <li key={f} className="feature-item">
+                      <div className="feature-dot" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div className="panel-section">
+              <div className="panel-heading">Where to Sell</div>
+              <div className="platform-tags">
+                {["Gumroad", "LemonSqueezy", "Shopify", "Etsy", "ProductHunt", "AppSumo", "Twitter/X", "LinkedIn"].map((p) => (
+                  <span key={p} className="platform-tag">{p}</span>
+                ))}
+              </div>
+            </div>
+          </aside>
+        </div>}
+      </div>
+    </>
+  );
+}
