@@ -192,6 +192,7 @@ export default function ContentAIPro() {
   const [charCount, setCharCount] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [isLightMode, setIsLightMode] = useState(false);
   const outputRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -364,6 +365,11 @@ export default function ContentAIPro() {
     }
   };
 
+  const selectTool = (tool: Tool) => {
+    setActiveTool(tool);
+    setShowMobileMenu(false);
+  };
+
   const handleAuthSubmit = async () => {
     if (IS_ANDROID_APP && authMode === "signup") {
       window.location.href = WEB_PORTAL_URL;
@@ -408,6 +414,7 @@ export default function ContentAIPro() {
     setAuthSession(null);
     setHistory([]);
     setOutput("");
+    setShowMobileMenu(false);
     window.localStorage.removeItem(AUTH_STORAGE_KEY);
   };
 
@@ -468,7 +475,7 @@ export default function ContentAIPro() {
           color: var(--text);
           font-family: 'DM Sans', sans-serif;
           position: relative;
-          overflow: hidden;
+          overflow-x: hidden;
         }
 
         .bg-mesh {
@@ -632,6 +639,8 @@ export default function ContentAIPro() {
           grid-template-rows: auto 1fr;
           min-height: 100vh;
           gap: 0;
+          width: 100%;
+          overflow-x: hidden;
         }
 
         .header {
@@ -679,6 +688,48 @@ export default function ContentAIPro() {
 
         .header-right {
           display: flex; align-items: center; gap: 16px;
+          min-width: 0;
+        }
+
+        .mobile-menu-toggle {
+          display: none;
+          align-items: center;
+          gap: 10px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          color: var(--text);
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 14px;
+          font-weight: 700;
+          padding: 10px 12px;
+          min-width: 0;
+        }
+
+        .burger-lines {
+          display: inline-flex;
+          flex-direction: column;
+          gap: 4px;
+          flex: 0 0 auto;
+        }
+
+        .burger-lines span {
+          width: 18px;
+          height: 2px;
+          background: var(--gold-light);
+          border-radius: 100px;
+        }
+
+        .mobile-menu-name {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .mobile-menu-panel {
+          display: none;
         }
 
         .history-btn, .theme-btn {
@@ -767,6 +818,7 @@ export default function ContentAIPro() {
           padding: 32px;
           display: flex; flex-direction: column; gap: 0;
           overflow-y: auto;
+          min-width: 0;
         }
 
         .section-title {
@@ -910,6 +962,14 @@ export default function ContentAIPro() {
           padding: 10px 12px;
           color: var(--muted);
           font-size: 12px;
+          min-width: 0;
+        }
+
+        .image-preview-meta span {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .generate-btn {
@@ -1001,6 +1061,7 @@ export default function ContentAIPro() {
           min-height: 280px;
           max-height: 420px;
           overflow-y: auto;
+          overflow-wrap: anywhere;
           font-size: 14px;
           line-height: 1.75;
           color: var(--text);
@@ -1205,7 +1266,166 @@ export default function ContentAIPro() {
             grid-template-rows: auto;
           }
           .right-panel, .sidebar { display: none; }
-          .center { padding: 20px; }
+          .header {
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 10px 12px;
+            min-height: 0;
+            padding: 14px 16px;
+          }
+
+          .logo {
+            flex: 1 1 190px;
+            height: 58px;
+            max-width: 220px;
+            min-width: 0;
+            width: auto;
+          }
+
+          .header-badge {
+            font-size: 10px;
+            padding: 4px 10px;
+            align-self: center;
+          }
+
+          .header-right {
+            flex: 0 0 auto;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-end;
+          }
+
+          .header-right > .account-chip,
+          .header-right > .theme-btn,
+          .header-right > .history-btn {
+            display: none;
+          }
+
+          .mobile-menu-toggle {
+            display: inline-flex;
+            max-width: 190px;
+          }
+
+          .history-btn, .theme-btn {
+            padding: 8px 10px;
+            text-align: center;
+            white-space: nowrap;
+          }
+
+          .mobile-menu-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            display: none;
+            flex: 1 1 100%;
+            padding: 12px;
+            width: 100%;
+          }
+
+          .mobile-menu-panel.open {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+          }
+
+          .mobile-profile {
+            border-bottom: 1px solid var(--border);
+            color: var(--muted);
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            padding: 2px 2px 12px;
+          }
+
+          .mobile-profile-label,
+          .mobile-menu-label {
+            color: var(--muted);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+          }
+
+          .mobile-profile-name {
+            color: var(--text);
+            font-size: 16px;
+            font-weight: 800;
+          }
+
+          .mobile-menu-tools {
+            display: grid;
+            gap: 6px;
+          }
+
+          .mobile-menu-tools .tool-btn {
+            border-color: var(--border);
+            padding: 12px;
+          }
+
+          .mobile-menu-actions {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .mobile-menu-actions .history-btn,
+          .mobile-menu-actions .theme-btn {
+            width: 100%;
+          }
+
+          .mobile-menu-actions .signout-action {
+            grid-column: 1 / -1;
+          }
+
+          .center {
+            padding: 18px 16px 24px;
+          }
+
+          .section-title {
+            font-size: 26px;
+          }
+
+          .section-subtitle {
+            line-height: 1.45;
+            margin-bottom: 22px;
+          }
+
+          .grid-2 {
+            grid-template-columns: 1fr;
+            gap: 14px;
+          }
+
+          .upload-zone {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .upload-btn,
+          .remove-image-btn {
+            width: 100%;
+          }
+
+          .image-preview-meta {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .generate-btn {
+            min-height: 52px;
+            padding: 14px;
+          }
+
+          .output-header {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 8px;
+          }
+
+          .output-content {
+            max-height: none;
+            min-height: 240px;
+            padding: 16px;
+          }
         }
       `}</style>
 
@@ -1362,6 +1582,20 @@ export default function ContentAIPro() {
             </div>
             <div className="header-badge">✦ Pro Suite</div>
             <div className="header-right">
+              <button
+                className="mobile-menu-toggle"
+                type="button"
+                onClick={() => setShowMobileMenu((current) => !current)}
+                aria-expanded={showMobileMenu}
+                aria-controls="mobile-profile-menu"
+              >
+                <span className="burger-lines" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                <span className="mobile-menu-name">{authSession.user.name || "Profile"}</span>
+              </button>
               <div className="account-chip">
                 <span className="account-name">{authSession.user.name}</span>
                 <button className="history-btn" type="button" onClick={signOut}>
@@ -1379,6 +1613,54 @@ export default function ContentAIPro() {
                 ◈ History ({history.length})
               </button>
             </div>
+            <div
+              className={`mobile-menu-panel ${showMobileMenu ? "open" : ""}`}
+              id="mobile-profile-menu"
+            >
+              <div className="mobile-profile">
+                <span className="mobile-profile-label">Profile</span>
+                <span className="mobile-profile-name">{authSession.user.name}</span>
+                <span>{authSession.user.email}</span>
+              </div>
+              <div className="mobile-menu-label">Content Tools</div>
+              <div className="mobile-menu-tools">
+                {TOOLS.map((t) => (
+                  <button
+                    key={t.id}
+                    className={`tool-btn ${activeTool.id === t.id ? "active" : ""}`}
+                    onClick={() => selectTool(t)}
+                  >
+                    <span className="tool-icon">{t.icon}</span>
+                    <div className="tool-info">
+                      <span className="tool-name">{t.label}</span>
+                      <span className="tool-desc">{t.desc}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="mobile-menu-actions">
+                <button
+                  className="theme-btn"
+                  onClick={() => setIsLightMode((current) => !current)}
+                  type="button"
+                >
+                  {isLightMode ? "Dark Mode" : "Light Mode"}
+                </button>
+                <button
+                  className="history-btn"
+                  type="button"
+                  onClick={() => {
+                    setShowMobileMenu(false);
+                    setShowHistory(true);
+                  }}
+                >
+                  History ({history.length})
+                </button>
+                <button className="history-btn signout-action" type="button" onClick={signOut}>
+                  Sign Out
+                </button>
+              </div>
+            </div>
           </header>
 
           {/* Sidebar */}
@@ -1388,7 +1670,7 @@ export default function ContentAIPro() {
               <button
                 key={t.id}
                 className={`tool-btn ${activeTool.id === t.id ? "active" : ""}`}
-                onClick={() => setActiveTool(t)}
+                onClick={() => selectTool(t)}
               >
                 <span className="tool-icon">{t.icon}</span>
                 <div className="tool-info">
