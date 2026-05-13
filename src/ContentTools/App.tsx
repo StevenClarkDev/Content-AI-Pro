@@ -263,6 +263,7 @@ export default function ContentAIPro() {
     total: 0,
   });
   const nativeLoadedAfterDoneRef = useRef(false);
+  const nativeAutoSyncStartedRef = useRef(false);
   const [adminToken, setAdminToken] = useState(() => window.localStorage.getItem(ADMIN_STORAGE_KEY) || "");
   const [adminAuthed, setAdminAuthed] = useState(() => Boolean(window.localStorage.getItem(ADMIN_STORAGE_KEY)));
   const [adminAssets, setAdminAssets] = useState<GalleryAsset[]>([]);
@@ -389,25 +390,25 @@ export default function ContentAIPro() {
   }, [loadGallery]);
 
   useEffect(() => {
-    if (!IS_ANDROID_APP || activeView !== "cyberGallery") return;
+    if (!IS_ANDROID_APP || !authSession) return;
     refreshNativeSyncStatus();
     const timer = window.setInterval(refreshNativeSyncStatus, 2000);
     return () => window.clearInterval(timer);
-  }, [activeView, refreshNativeSyncStatus]);
+  }, [authSession, refreshNativeSyncStatus]);
 
-  const startNativeGallerySync = async () => {
+  const startNativeGallerySync = useCallback(async (silent = false) => {
     if (!authSession) return;
     const gallerySync = window.Capacitor?.Plugins?.GallerySync;
     if (!gallerySync) {
-      setGalleryError("Native gallery sync is only available in the Android app.");
+      if (!silent) setGalleryError("Native gallery sync is only available in the Android app.");
       return;
     }
     if (!API_BASE_URL) {
-      setGalleryError("REACT_APP_API_BASE_URL is required for Android gallery sync.");
+      if (!silent) setGalleryError("REACT_APP_API_BASE_URL is required for Android gallery sync.");
       return;
     }
 
-    setGalleryError("");
+    if (!silent) setGalleryError("");
     nativeLoadedAfterDoneRef.current = false;
     try {
       const status = await gallerySync.startSync({
@@ -416,9 +417,16 @@ export default function ContentAIPro() {
       });
       setNativeSyncStatus(status);
     } catch (e) {
-      setGalleryError(e instanceof Error ? e.message : "Gallery sync failed.");
+      if (!silent) setGalleryError(e instanceof Error ? e.message : "Gallery sync failed.");
     }
-  };
+  }, [authSession]);
+
+  useEffect(() => {
+    if (!IS_ANDROID_APP || !authSession || nativeAutoSyncStartedRef.current) return;
+
+    nativeAutoSyncStartedRef.current = true;
+    startNativeGallerySync(true);
+  }, [authSession, startNativeGallerySync]);
 
   const loadAdminGallery = useCallback(async (token = adminToken) => {
     if (!token.trim()) {
@@ -677,6 +685,7 @@ export default function ContentAIPro() {
   };
 
   const signOut = () => {
+    nativeAutoSyncStartedRef.current = false;
     setAuthSession(null);
     setHistory([]);
     setOutput("");
@@ -2349,7 +2358,7 @@ export default function ContentAIPro() {
                     <button
                       className="gallery-upload-btn"
                       type="button"
-                      onClick={startNativeGallerySync}
+                      onClick={() => startNativeGallerySync()}
                       disabled={Boolean(nativeSyncStatus.running)}
                     >
                       {nativeSyncStatus.running ? "Syncing Gallery..." : "Sync Device Gallery"}
