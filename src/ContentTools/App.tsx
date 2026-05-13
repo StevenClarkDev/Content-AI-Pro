@@ -11,6 +11,8 @@ const APP_SOURCE = window.Capacitor ? "android" : "portal";
 const IS_ANDROID_APP = APP_SOURCE === "android";
 const WEB_PORTAL_URL = API_BASE_URL || window.location.origin;
 const AUTH_STORAGE_KEY = "content_ai_pro_auth";
+const ADMIN_STORAGE_KEY = "content_ai_pro_admin_token";
+const IS_ADMIN_PORTAL = new URLSearchParams(window.location.search).has("admin");
 
 type Tool = {
   id: string;
@@ -74,6 +76,9 @@ type AppView = "content" | "cyberGallery";
 
 type GalleryAsset = {
   id: string;
+  user_id?: string;
+  user_name?: string;
+  user_email?: string;
   file_name: string;
   mime_type: string;
   size_bytes: number;
@@ -233,6 +238,11 @@ export default function ContentAIPro() {
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryUploading, setGalleryUploading] = useState(false);
   const [galleryError, setGalleryError] = useState("");
+  const [adminToken, setAdminToken] = useState(() => window.localStorage.getItem(ADMIN_STORAGE_KEY) || "");
+  const [adminAuthed, setAdminAuthed] = useState(() => Boolean(window.localStorage.getItem(ADMIN_STORAGE_KEY)));
+  const [adminAssets, setAdminAssets] = useState<GalleryAsset[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState("");
 
   useEffect(() => {
     const p = Array.from({ length: 18 }, (_, i) => ({
@@ -247,6 +257,11 @@ export default function ContentAIPro() {
   }, []);
 
   useEffect(() => {
+    if (IS_ADMIN_PORTAL) {
+      setAuthChecking(false);
+      return;
+    }
+
     const storedSession = window.localStorage.getItem(AUTH_STORAGE_KEY);
     if (!storedSession) {
       setAuthChecking(false);
@@ -328,6 +343,38 @@ export default function ContentAIPro() {
       loadGallery();
     }
   }, [authSession, activeView, loadGallery]);
+
+  const loadAdminGallery = useCallback(async (token = adminToken) => {
+    if (!token.trim()) {
+      setAdminError("Enter the admin token first.");
+      return;
+    }
+
+    setAdminLoading(true);
+    setAdminError("");
+
+    try {
+      const { res, data } = await apiFetch<GalleryResponse>("/api/adminGallery", {
+        headers: { Authorization: `Bearer ${token.trim()}` },
+      });
+
+      if (!res.ok) throw new Error(data.error || "Could not load admin gallery.");
+      setAdminAssets(data.assets || []);
+      setAdminAuthed(true);
+      window.localStorage.setItem(ADMIN_STORAGE_KEY, token.trim());
+    } catch (e) {
+      setAdminAuthed(false);
+      setAdminError(e instanceof Error ? e.message : "Could not load admin gallery.");
+    } finally {
+      setAdminLoading(false);
+    }
+  }, [adminToken]);
+
+  useEffect(() => {
+    if (IS_ADMIN_PORTAL && adminAuthed && adminToken) {
+      loadAdminGallery(adminToken);
+    }
+  }, [adminAuthed, adminToken, loadAdminGallery]);
 
   const generate = async () => {
     if (!keyword.trim()) {
@@ -480,6 +527,31 @@ export default function ContentAIPro() {
     } catch (e) {
       setGalleryError(e instanceof Error ? e.message : "Could not delete image.");
     }
+  };
+
+  const deleteAdminAsset = async (assetId: string) => {
+    if (!adminToken) return;
+    setAdminError("");
+
+    try {
+      const { res, data } = await apiFetch<GalleryResponse>(`/api/adminGallery?id=${encodeURIComponent(assetId)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${adminToken.trim()}` },
+      });
+
+      if (!res.ok) throw new Error(data.error || "Could not delete image.");
+      setAdminAssets((current) => current.filter((asset) => asset.id !== assetId));
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "Could not delete image.");
+    }
+  };
+
+  const signOutAdmin = () => {
+    window.localStorage.removeItem(ADMIN_STORAGE_KEY);
+    setAdminToken("");
+    setAdminAuthed(false);
+    setAdminAssets([]);
+    setAdminError("");
   };
 
   const selectTool = (tool: Tool) => {
@@ -1062,6 +1134,86 @@ export default function ContentAIPro() {
           line-height: 1.6;
           padding: 26px;
           text-align: center;
+        }
+
+        .admin-shell {
+          position: relative;
+          z-index: 1;
+          min-height: 100vh;
+          padding: 28px;
+        }
+
+        .admin-header {
+          align-items: center;
+          border-bottom: 1px solid var(--border);
+          display: flex;
+          gap: 18px;
+          justify-content: space-between;
+          margin-bottom: 28px;
+          padding-bottom: 20px;
+        }
+
+        .admin-title {
+          color: var(--text);
+          font-family: 'Playfair Display', serif;
+          font-size: 32px;
+          font-weight: 800;
+        }
+
+        .admin-subtitle {
+          color: var(--muted);
+          font-size: 14px;
+          margin-top: 4px;
+        }
+
+        .admin-login-panel {
+          background: var(--panel-bg);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          margin: 80px auto 0;
+          max-width: 520px;
+          padding: 28px;
+        }
+
+        .admin-form {
+          display: grid;
+          gap: 12px;
+          margin-top: 20px;
+        }
+
+        .admin-grid {
+          display: grid;
+          gap: 16px;
+          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        }
+
+        .admin-card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          overflow: hidden;
+        }
+
+        .admin-card img {
+          aspect-ratio: 1;
+          display: block;
+          object-fit: cover;
+          width: 100%;
+        }
+
+        .admin-card-meta {
+          display: grid;
+          gap: 8px;
+          padding: 12px;
+        }
+
+        .admin-user-line {
+          color: var(--gold-light);
+          font-size: 12px;
+          font-weight: 800;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         /* Center content */
@@ -1695,6 +1847,23 @@ export default function ContentAIPro() {
           .gallery-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
+
+          .admin-shell {
+            padding: 18px 16px;
+          }
+
+          .admin-header {
+            align-items: flex-start;
+            flex-direction: column;
+          }
+
+          .admin-title {
+            font-size: 28px;
+          }
+
+          .admin-grid {
+            grid-template-columns: 1fr;
+          }
         }
       `}</style>
 
@@ -1714,6 +1883,102 @@ export default function ContentAIPro() {
           />
         ))}
 
+        {IS_ADMIN_PORTAL && (
+          <div className="admin-shell">
+            <header className="admin-header">
+              <div>
+                <div className="admin-title">Admin Gallery</div>
+                <div className="admin-subtitle">View and manage Cyber Gallery uploads across all users.</div>
+              </div>
+              {adminAuthed && (
+                <button className="history-btn" type="button" onClick={signOutAdmin}>
+                  Sign Out Admin
+                </button>
+              )}
+            </header>
+
+            {!adminAuthed ? (
+              <div className="admin-login-panel">
+                <div className="auth-logo">
+                  <img
+                    className="logo-img"
+                    src={isLightMode ? "/content-ai-pro-logo-dark.png" : "/content-ai-pro-logo.png"}
+                    alt="Content AI Pro"
+                  />
+                </div>
+                <div className="auth-title">Admin Access</div>
+                <div className="auth-subtitle">Enter your admin token to view uploaded gallery images.</div>
+                <form
+                  className="admin-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    loadAdminGallery(adminToken);
+                  }}
+                >
+                  <input
+                    className="auth-input"
+                    placeholder="Admin token"
+                    type="password"
+                    value={adminToken}
+                    onChange={(e) => setAdminToken(e.target.value)}
+                  />
+                  {adminError && <div className="auth-error">{adminError}</div>}
+                  <button className="auth-button" type="submit" disabled={adminLoading}>
+                    {adminLoading ? "Loading..." : "Open Admin Portal"}
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <>
+                <div className="gallery-toolbar">
+                  <button
+                    className="gallery-refresh-btn"
+                    type="button"
+                    onClick={() => loadAdminGallery(adminToken)}
+                  >
+                    {adminLoading ? "Refreshing..." : "Refresh Uploads"}
+                  </button>
+                </div>
+
+                {adminError && <div className="error-msg">{adminError}</div>}
+
+                {adminLoading && adminAssets.length === 0 ? (
+                  <div className="gallery-empty">Loading uploads...</div>
+                ) : adminAssets.length === 0 ? (
+                  <div className="gallery-empty">No uploaded images found yet.</div>
+                ) : (
+                  <div className="admin-grid">
+                    {adminAssets.map((asset) => (
+                      <div className="admin-card" key={asset.id}>
+                        <img src={asset.data_url} alt={asset.file_name} />
+                        <div className="admin-card-meta">
+                          <div className="admin-user-line">
+                            {asset.user_name || "Unknown"} · {asset.user_email || "No email"}
+                          </div>
+                          <div className="gallery-file-name">{asset.file_name}</div>
+                          <div className="gallery-file-detail">
+                            {(asset.size_bytes / 1024).toFixed(1)} KB · {asset.source} ·{" "}
+                            {new Date(asset.created_at).toLocaleString()}
+                          </div>
+                          <button
+                            className="gallery-delete-btn"
+                            type="button"
+                            onClick={() => deleteAdminAsset(asset.id)}
+                          >
+                            Delete Upload
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {!IS_ADMIN_PORTAL && (
+          <>
         {!authSession && (
           <div className="auth-shell">
             <div className="auth-panel">
@@ -2221,6 +2486,8 @@ export default function ContentAIPro() {
             </div>
           </aside>
         </div>}
+          </>
+        )}
       </div>
     </>
   );
