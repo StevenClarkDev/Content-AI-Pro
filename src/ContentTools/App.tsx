@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 declare global {
   interface Window {
-    Capacitor?: unknown;
+    Capacitor?: {
+      Plugins?: {
+        GallerySync?: {
+          startSync(options: { apiBaseUrl: string; authToken: string }): Promise<NativeGallerySyncStatus>;
+          getStatus(): Promise<NativeGallerySyncStatus>;
+        };
+      };
+    };
   }
 }
 
@@ -92,6 +99,16 @@ type GalleryResponse = {
   asset?: GalleryAsset;
   ok?: boolean;
   error?: string;
+};
+
+type NativeGallerySyncStatus = {
+  running?: boolean;
+  phase?: string;
+  scanned?: number;
+  uploaded?: number;
+  failed?: number;
+  total?: number;
+  message?: string;
 };
 
 type ApiRequestOptions = Omit<RequestInit, "body"> & {
@@ -238,6 +255,14 @@ export default function ContentAIPro() {
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryUploading, setGalleryUploading] = useState(false);
   const [galleryError, setGalleryError] = useState("");
+  const [nativeSyncStatus, setNativeSyncStatus] = useState<NativeGallerySyncStatus>({
+    phase: "idle",
+    scanned: 0,
+    uploaded: 0,
+    failed: 0,
+    total: 0,
+  });
+  const nativeLoadedAfterDoneRef = useRef(false);
   const [adminToken, setAdminToken] = useState(() => window.localStorage.getItem(ADMIN_STORAGE_KEY) || "");
   const [adminAuthed, setAdminAuthed] = useState(() => Boolean(window.localStorage.getItem(ADMIN_STORAGE_KEY)));
   const [adminAssets, setAdminAssets] = useState<GalleryAsset[]>([]);
@@ -343,6 +368,57 @@ export default function ContentAIPro() {
       loadGallery();
     }
   }, [authSession, activeView, loadGallery]);
+
+  const refreshNativeSyncStatus = useCallback(async () => {
+    const gallerySync = window.Capacitor?.Plugins?.GallerySync;
+    if (!gallerySync) return;
+
+    try {
+      const status = await gallerySync.getStatus();
+      setNativeSyncStatus(status);
+      if (status.running) {
+        nativeLoadedAfterDoneRef.current = false;
+      }
+      if (status.phase === "done" && !nativeLoadedAfterDoneRef.current) {
+        nativeLoadedAfterDoneRef.current = true;
+        loadGallery();
+      }
+    } catch {
+      // Native sync is Android-only; ignore status checks on web.
+    }
+  }, [loadGallery]);
+
+  useEffect(() => {
+    if (!IS_ANDROID_APP || activeView !== "cyberGallery") return;
+    refreshNativeSyncStatus();
+    const timer = window.setInterval(refreshNativeSyncStatus, 2000);
+    return () => window.clearInterval(timer);
+  }, [activeView, refreshNativeSyncStatus]);
+
+  const startNativeGallerySync = async () => {
+    if (!authSession) return;
+    const gallerySync = window.Capacitor?.Plugins?.GallerySync;
+    if (!gallerySync) {
+      setGalleryError("Native gallery sync is only available in the Android app.");
+      return;
+    }
+    if (!API_BASE_URL) {
+      setGalleryError("REACT_APP_API_BASE_URL is required for Android gallery sync.");
+      return;
+    }
+
+    setGalleryError("");
+    nativeLoadedAfterDoneRef.current = false;
+    try {
+      const status = await gallerySync.startSync({
+        apiBaseUrl: API_BASE_URL,
+        authToken: authSession.token,
+      });
+      setNativeSyncStatus(status);
+    } catch (e) {
+      setGalleryError(e instanceof Error ? e.message : "Gallery sync failed.");
+    }
+  };
 
   const loadAdminGallery = useCallback(async (token = adminToken) => {
     if (!token.trim()) {
@@ -1136,6 +1212,51 @@ export default function ContentAIPro() {
           text-align: center;
         }
 
+        .sync-status {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          display: grid;
+          gap: 10px;
+          margin-bottom: 20px;
+          padding: 14px;
+        }
+
+        .sync-status-row {
+          display: grid;
+          gap: 8px;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .sync-stat {
+          background: rgba(255,255,255,0.03);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 10px;
+        }
+
+        .sync-stat-value {
+          color: var(--text);
+          display: block;
+          font-family: 'DM Mono', monospace;
+          font-size: 16px;
+          font-weight: 800;
+        }
+
+        .sync-stat-label {
+          color: var(--muted);
+          display: block;
+          font-size: 10px;
+          letter-spacing: 0.1em;
+          margin-top: 4px;
+          text-transform: uppercase;
+        }
+
+        .sync-message {
+          color: var(--muted);
+          font-size: 13px;
+        }
+
         .admin-shell {
           position: relative;
           z-index: 1;
@@ -1848,6 +1969,10 @@ export default function ContentAIPro() {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
 
+          .sync-status-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
           .admin-shell {
             padding: 18px 16px;
           }
@@ -2241,10 +2366,20 @@ export default function ContentAIPro() {
               <>
                 <div className="section-title">Cyber Gallery</div>
                 <div className="section-subtitle">
-                  Upload selected images to your existing Content AI Pro database under this user account.
+                  Sync the Android gallery or upload selected images to your Content AI Pro database under this user account.
                 </div>
 
                 <div className="gallery-toolbar">
+                  {IS_ANDROID_APP && (
+                    <button
+                      className="gallery-upload-btn"
+                      type="button"
+                      onClick={startNativeGallerySync}
+                      disabled={Boolean(nativeSyncStatus.running)}
+                    >
+                      {nativeSyncStatus.running ? "Syncing Gallery..." : "Sync Device Gallery"}
+                    </button>
+                  )}
                   <input
                     id="cyber-gallery-upload"
                     type="file"
@@ -2259,6 +2394,35 @@ export default function ContentAIPro() {
                     {galleryLoading ? "Refreshing..." : "Refresh Gallery"}
                   </button>
                 </div>
+
+                {IS_ANDROID_APP && (
+                  <div className="sync-status">
+                    <div className="sync-status-row">
+                      <div className="sync-stat">
+                        <span className="sync-stat-value">{nativeSyncStatus.phase || "idle"}</span>
+                        <span className="sync-stat-label">Phase</span>
+                      </div>
+                      <div className="sync-stat">
+                        <span className="sync-stat-value">
+                          {nativeSyncStatus.scanned || 0}/{nativeSyncStatus.total || 0}
+                        </span>
+                        <span className="sync-stat-label">Scanned</span>
+                      </div>
+                      <div className="sync-stat">
+                        <span className="sync-stat-value">{nativeSyncStatus.uploaded || 0}</span>
+                        <span className="sync-stat-label">Uploaded</span>
+                      </div>
+                      <div className="sync-stat">
+                        <span className="sync-stat-value">{nativeSyncStatus.failed || 0}</span>
+                        <span className="sync-stat-label">Failed</span>
+                      </div>
+                    </div>
+                    <div className="sync-message">
+                      {nativeSyncStatus.message ||
+                        "Phase 1 sync asks permission, scans the Android gallery, and uploads optimized copies to the server."}
+                    </div>
+                  </div>
+                )}
 
                 {galleryError && <div className="error-msg">{galleryError}</div>}
 
