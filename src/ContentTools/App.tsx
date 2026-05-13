@@ -636,11 +636,6 @@ export default function ContentAIPro() {
     setShowMobileMenu(false);
   };
 
-  const selectCyberGallery = () => {
-    setActiveView("cyberGallery");
-    setShowMobileMenu(false);
-  };
-
   const handleAuthSubmit = async () => {
     if (IS_ANDROID_APP && authMode === "signup") {
       window.location.href = WEB_PORTAL_URL;
@@ -2283,16 +2278,6 @@ export default function ContentAIPro() {
               </div>
               <div className="mobile-menu-label">Content Tools</div>
               <div className="mobile-menu-tools">
-                <button
-                  className={`app-switch-btn ${activeView === "cyberGallery" ? "active" : ""}`}
-                  onClick={selectCyberGallery}
-                >
-                  <span className="app-switch-icon">CG</span>
-                  <div className="tool-info">
-                    <span className="tool-name">Cyber Gallery</span>
-                    <span className="tool-desc">Upload and manage user images</span>
-                  </div>
-                </button>
                 {TOOLS.map((t) => (
                   <button
                     key={t.id}
@@ -2334,16 +2319,6 @@ export default function ContentAIPro() {
 
           {/* Sidebar */}
           <aside className="sidebar">
-            <button
-              className={`app-switch-btn ${activeView === "cyberGallery" ? "active" : ""}`}
-              onClick={selectCyberGallery}
-            >
-              <span className="app-switch-icon">CG</span>
-              <div className="tool-info">
-                <span className="tool-name">Cyber Gallery</span>
-                <span className="tool-desc">Upload and manage images</span>
-              </div>
-            </button>
             <div className="sidebar-label">Content Tools</div>
             {TOOLS.map((t) => (
               <button
