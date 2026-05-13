@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AssetStatus {
+  pending
+  uploaded
+  failed
+  deleted
+}
+
+enum Platform {
+  android
+  ios
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  storageUsed  BigInt   @default(0)
+  createdAt    DateTime @default(now())
+  devices      Device[]
+  assets       Asset[]
+  refreshTokens RefreshToken[]
+}
+
+model Device {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform   Platform
+  deviceUid  String
+  name       String
+  lastSyncAt DateTime?
+  createdAt  DateTime  @default(now())
+  assets     Asset[]
+
+  @@unique([userId, deviceUid])
+}
+
+model Asset {
+  id              String      @id @default(uuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId        String
+  device          Device      @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceAssetId   String
+  checksum        String
+  filename        String
+  mimeType        String
+  sizeBytes       BigInt      @default(0)
+  width           Int?
+  height          Int?
+  takenAt         DateTime?
+  modifiedAtDevice DateTime?
+  storageKey      String?
+  thumbnailKey    String?
+  status          AssetStatus @default(pending)
+  uploadToken     String?     @unique
+  uploadedAt      DateTime?
+  deletedAt       DateTime?
+  createdAt       DateTime    @default(now())
+
+  @@unique([userId, deviceId, deviceAssetId])
+  @@index([userId, deviceId, status, createdAt])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+}

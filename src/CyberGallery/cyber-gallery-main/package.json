@@ -1,0 +1,15 @@
+{
+  "name": "cyber-gallery",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "dev:api": "pnpm --filter @cg/api start:dev",
+    "dev:web": "pnpm --filter @cg/web dev",
+    "dev:mobile": "pnpm --filter @cg/mobile start",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down"
+  }
+}

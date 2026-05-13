@@ -1,0 +1,36 @@
+# Production data services for Cyber Gallery
+# Postgres + Redis only. The Node apps run on the host via PM2.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cg-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-cyber_gallery}
+    # Bind only to localhost — never expose Postgres to the public internet.
+    # Host port 5433 to avoid conflicting with a system-installed Postgres on 5432.
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - cg_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cg}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: cg-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - cg_redisdata:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
+volumes:
+  cg_pgdata:
+  cg_redisdata:

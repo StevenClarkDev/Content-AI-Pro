@@ -1,0 +1,11 @@
+rootProject.name = 'CyberGallery'
+
+def resolveNodeModule = { String pkg ->
+    def out = ["node", "--print", "require.resolve('${pkg}/package.json')"].execute(null, rootDir).text.trim()
+    return new File(out).getParentFile()
+}
+
+def cliAndroidDir = resolveNodeModule("@react-native-community/cli-platform-android")
+apply from: new File(cliAndroidDir, "native_modules.gradle"); applyNativeModulesSettingsGradle(settings)
+include ':app'
+includeBuild(resolveNodeModule("@react-native/gradle-plugin"))
