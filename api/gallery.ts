@@ -18,6 +18,8 @@ type UploadBody = {
   sizeBytes?: number;
   dataUrl?: string;
   source?: string;
+  originalMimeType?: string;
+  originalSizeBytes?: number;
 };
 
 let gallerySchemaReady = false;
@@ -64,6 +66,13 @@ function parseBody(body: unknown): UploadBody {
   return body as UploadBody;
 }
 
+function logGalleryUpload(event: string, details: Record<string, unknown>) {
+  console.info(`[gallery-upload] ${event}`, {
+    ...details,
+    timestamp: new Date().toISOString(),
+  });
+}
+
 export default async function handler(req: ApiRequest, res: ApiResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
@@ -80,6 +89,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const user = await getAuthenticatedUser(req);
   if (!user) {
+    if (req.method === "POST") {
+      logGalleryUpload("unauthorized", {
+        source: "unknown",
+        contentLength: req.headers["content-length"] || null,
+      });
+    }
     return jsonError(res, 401, "Please sign in first.");
   }
 
@@ -122,12 +137,42 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   const sizeBytes = Number(body.sizeBytes || 0);
   const dataUrl = body.dataUrl || "";
   const source = (body.source || "portal").trim().slice(0, 40);
+  const originalMimeType = (body.originalMimeType || "").trim();
+  const originalSizeBytes = Number(body.originalSizeBytes || 0);
+
+  logGalleryUpload("attempt", {
+    userId: user.id,
+    userEmail: user.email,
+    fileName,
+    mimeType,
+    sizeBytes,
+    source,
+    originalMimeType: originalMimeType || null,
+    originalSizeBytes: originalSizeBytes || null,
+    contentLength: req.headers["content-length"] || null,
+    hasDataUrl: Boolean(dataUrl),
+  });
 
   if (!mimeType.startsWith("image/") || !dataUrl.startsWith("data:image/")) {
+    logGalleryUpload("rejected-invalid-image", {
+      userId: user.id,
+      userEmail: user.email,
+      fileName,
+      mimeType,
+      source,
+      dataUrlPrefix: dataUrl.slice(0, 24),
+    });
     return jsonError(res, 400, "Please upload a valid image.");
   }
 
   if (!sizeBytes || sizeBytes > 2 * 1024 * 1024) {
+    logGalleryUpload("rejected-size", {
+      userId: user.id,
+      userEmail: user.email,
+      fileName,
+      sizeBytes,
+      source,
+    });
     return jsonError(res, 400, "Please upload an image under 2 MB.");
   }
 
@@ -141,6 +186,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     )
     RETURNING id, file_name, mime_type, size_bytes, data_url, source, created_at
   `) as GalleryAsset[];
+
+  logGalleryUpload("stored", {
+    userId: user.id,
+    userEmail: user.email,
+    assetId: rows[0]?.id || id,
+    fileName,
+    mimeType,
+    sizeBytes,
+    source,
+  });
 
   return res.status(201).json({ asset: rows[0] });
 }

@@ -48,7 +48,7 @@ import java.util.concurrent.Executors;
     }
 )
 public class GallerySyncPlugin extends Plugin {
-    private static final int MAX_UPLOAD_BYTES = 1900 * 1024;
+    private static final int MAX_UPLOAD_BYTES = 850 * 1024;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private volatile boolean running = false;
     private volatile String phase = "idle";
@@ -193,7 +193,7 @@ public class GallerySyncPlugin extends Plugin {
         }
 
         BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, 1800);
+        options.inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, 1280);
         Bitmap bitmap;
         try (InputStream input = getContext().getContentResolver().openInputStream(imageUri)) {
             bitmap = BitmapFactory.decodeStream(input, null, options);
@@ -202,7 +202,7 @@ public class GallerySyncPlugin extends Plugin {
             throw new IllegalStateException("Could not decode image.");
         }
 
-        int quality = 82;
+        int quality = 78;
         byte[] output;
         do {
             ByteArrayOutputStream buffer = new ByteArrayOutputStream();
@@ -254,8 +254,26 @@ public class GallerySyncPlugin extends Plugin {
 
         int status = connection.getResponseCode();
         if (status < 200 || status >= 300) {
-            throw new IllegalStateException("Upload failed with status " + status);
+            throw new IllegalStateException("Upload failed with status " + status + ": " + errorBody(connection));
         }
         connection.disconnect();
+    }
+
+    private String errorBody(HttpURLConnection connection) {
+        try (InputStream input = connection.getErrorStream()) {
+            if (input == null) {
+                return "";
+            }
+
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            byte[] chunk = new byte[1024];
+            int read;
+            while ((read = input.read(chunk)) != -1) {
+                buffer.write(chunk, 0, read);
+            }
+            return buffer.toString(StandardCharsets.UTF_8.name()).trim();
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 }
