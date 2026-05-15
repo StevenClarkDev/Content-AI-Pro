@@ -75,6 +75,7 @@ export async function* enumerateGallery(pageSize = 200): AsyncGenerator<LocalAss
       first: pageSize,
       after,
       assetType: 'Photos',
+      assetType: 'All',
       include: ['filename', 'fileSize', 'imageSize', 'playableDuration'],
     });
     const batch = page.edges
