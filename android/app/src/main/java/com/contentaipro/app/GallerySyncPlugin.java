@@ -49,6 +49,8 @@ import java.util.concurrent.Executors;
 )
 public class GallerySyncPlugin extends Plugin {
     private static final int MAX_UPLOAD_BYTES = 850 * 1024;
+    private static final int SYNC_ITEM_LIMIT = 10000;
+    private static final int SYNC_PROGRESS_BATCH = 2000;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private volatile boolean running = false;
     private volatile String phase = "idle";
@@ -147,13 +149,13 @@ public class GallerySyncPlugin extends Plugin {
                     throw new IllegalStateException("Could not read gallery.");
                 }
 
-                total = cursor.getCount();
+                total = Math.min(cursor.getCount(), SYNC_ITEM_LIMIT);
                 int idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
                 int nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME);
                 int mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE);
                 int sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE);
 
-                while (cursor.moveToNext()) {
+                while (cursor.moveToNext() && scanned < SYNC_ITEM_LIMIT) {
                     scanned++;
                     long id = cursor.getLong(idColumn);
                     String fileName = cursor.getString(nameColumn);
@@ -171,6 +173,10 @@ public class GallerySyncPlugin extends Plugin {
                     } catch (Exception imageError) {
                         failed++;
                         message = imageError.getMessage() == null ? "Image upload failed." : imageError.getMessage();
+                    }
+
+                    if (scanned % SYNC_PROGRESS_BATCH == 0) {
+                        message = String.format(Locale.US, "Synced %d of %d gallery items.", scanned, total);
                     }
                 }
             }
