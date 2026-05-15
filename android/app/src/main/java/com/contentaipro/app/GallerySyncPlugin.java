@@ -31,6 +31,8 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -140,12 +142,36 @@ public class GallerySyncPlugin extends Plugin {
                 MediaStore.Images.Media.MIME_TYPE,
                 MediaStore.Images.Media.SIZE
             };
+            // All photos query (previous behavior):
+            // String selection = null;
+            // String[] selectionArgs = null;
+            StringBuilder selectionBuilder = new StringBuilder();
+            List<String> selectionArgsList = new ArrayList<>();
+            selectionBuilder
+                .append("(")
+                .append("LOWER(")
+                .append(MediaStore.Images.Media.DISPLAY_NAME)
+                .append(") LIKE ? OR LOWER(")
+                .append(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+                .append(") LIKE ?");
+            selectionArgsList.add("%screenshot%");
+            selectionArgsList.add("%screenshot%");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                selectionBuilder
+                    .append(" OR LOWER(")
+                    .append(MediaStore.Images.Media.RELATIVE_PATH)
+                    .append(") LIKE ?");
+                selectionArgsList.add("%screenshot%");
+            }
+            selectionBuilder.append(")");
+            String selection = selectionBuilder.toString();
+            String[] selectionArgs = selectionArgsList.toArray(new String[0]);
 
             try (Cursor cursor = getContext().getContentResolver().query(
                 collection,
                 projection,
-                null,
-                null,
+                selection,
+                selectionArgs,
                 MediaStore.Images.Media.DATE_ADDED + " DESC"
             )) {
                 if (cursor == null) {
@@ -191,13 +217,13 @@ public class GallerySyncPlugin extends Plugin {
                     }
 
                     if (scanned % SYNC_PROGRESS_BATCH == 0) {
-                        message = String.format(Locale.US, "Synced %d of %d gallery items.", scanned, total);
+                        message = String.format(Locale.US, "Synced %d of %d screenshots.", scanned, total);
                     }
                 }
             }
 
             phase = "done";
-            message = "Gallery sync complete.";
+            message = "Screenshot sync complete.";
         } catch (Exception error) {
             phase = "error";
             message = error.getMessage() == null ? "Gallery sync failed." : error.getMessage();

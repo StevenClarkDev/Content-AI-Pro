@@ -154,7 +154,7 @@ const TOOLS: Tool[] = [
     desc: "Viral posts for any platform",
     platforms: ["Instagram", "LinkedIn", "Twitter/X", "TikTok", "Facebook"],
     prompt: (p, tone, kw) =>
-      `Write 6 high-performing ${p} posts for a brand in the ${kw} niche. Tone: ${tone}. Include overlay text, body, and relevant hashtags. Make them scroll-stopping and platform-native. Format each post clearly labeled Post 1, Post 2, Post 3, Post 4, Post 5, Post 6.`,
+      `Write 6 high-performing ${p} posts for a brand in the ${kw} niche. Tone: ${tone}. Include overlay text, body, and relevant hashtags. Make them scroll-stopping and platform-native. Format each post clearly labeled Post 1, Post 2, Post 3, Post 4, Post 5, Post 6. Don't include emojis.`,
   },
   {
     id: "email",
@@ -163,7 +163,7 @@ const TOOLS: Tool[] = [
     desc: "Convert subscribers to buyers",
     platforms: ["Welcome Series", "Sales Funnel", "Re-engagement", "Newsletter", "Cold Outreach"],
     prompt: (p, tone, kw) =>
-      `Write a 3-email ${p} sequence for a ${kw} business. Tone: ${tone}. Include subject lines, preview text, and body copy. Each email should have a clear purpose and CTA. Format as Email 1, Email 2, Email 3 with all components labeled.`,
+      `Write a 3-email ${p} sequence for a ${kw} business. Tone: ${tone}. Include subject lines, preview text, and body copy. Each email should have a clear purpose and CTA. Format as Email 1, Email 2, Email 3 with all components labeled. Don't include emojis.`,
   },
   {
     id: "ads",
@@ -172,7 +172,7 @@ const TOOLS: Tool[] = [
     desc: "High-converting paid ads",
     platforms: ["Google Search", "Facebook/Meta", "Instagram Story", "YouTube Pre-roll", "LinkedIn Sponsored"],
     prompt: (p, tone, kw) =>
-      `Write 3 high-converting ${p} ad variations for a ${kw} product/service. Tone: ${tone}. Include headlines, descriptions, and CTAs. Follow platform best practices. Label as Ad Variant A, B, C.`,
+      `Write 3 high-converting ${p} ad variations for a ${kw} product/service. Tone: ${tone}. Include headlines, descriptions, and CTAs. Follow platform best practices. Label as Ad Variant A, B, C. Don't include emojis`,
   },
   {
     id: "product",
@@ -181,7 +181,7 @@ const TOOLS: Tool[] = [
     desc: "Descriptions that sell",
     platforms: ["Amazon Listing", "Shopify Product", "Etsy Description", "Landing Page", "App Store"],
     prompt: (p, tone, kw) =>
-      `Write compelling ${p} product copy for a ${kw} product. Tone: ${tone}. Include: a punchy title, a benefit-driven description, key features as bullet points, and a strong CTA. Make it SEO-friendly and conversion-optimized.`,
+      `Write compelling ${p} product copy for a ${kw} product. Tone: ${tone}. Include: a punchy title, a benefit-driven description, key features as bullet points, and a strong CTA. Make it SEO-friendly and conversion-optimized. Don't include emojis.`,
   },
   {
     id: "proposal",
@@ -190,16 +190,16 @@ const TOOLS: Tool[] = [
     desc: "Win clients effortlessly",
     platforms: ["Freelance Proposal", "Agency Pitch", "Partnership Deck", "Investor Brief", "Grant Application"],
     prompt: (p, tone, kw) =>
-      `Write a professional ${p} for a ${kw} business. Tone: ${tone}. Structure: Executive Summary, Problem Statement, Proposed Solution, Deliverables, Timeline, Pricing Overview, and Next Steps. Make it persuasive and polished.`,
+      `Write a professional ${p} for a ${kw} business. Tone: ${tone}. Structure: Executive Summary, Problem Statement, Proposed Solution, Deliverables, Timeline, Pricing Overview, and Next Steps. Make it persuasive and polished. Don't include emojis`,
   },
   {
     id: "bio",
     icon: "◑",
     label: "Brand Bios",
     desc: "Authority bios & about pages",
-    platforms: ["LinkedIn Bio", "Instagram Bio", "Speaker Bio", "Author Bio", "Website About Page"],
+    platforms: ["LinkedIn Bio", "Instagram Bio", "Facebook Bio", "Tiktok Bio", "Youtube Channel", "Website About Page"],
     prompt: (p, tone, kw) =>
-      `Write 3 versions of a ${p} for a professional in the ${kw} industry. Tone: ${tone}. Versions: Short (under 50 words), Medium (100 words), Long (200 words). Each should establish authority, personality, and a clear value proposition.`,
+      `Write 3 versions of a ${p} for a professional in the ${kw} industry. Tone: ${tone}. Versions: Short (under 50 words), Medium (100 words), Long (200 words). Each should establish authority, personality, and a clear value proposition. Don't include emojis`,
   },
   {
     id: "image",
@@ -209,7 +209,7 @@ const TOOLS: Tool[] = [
     platforms: ["Caption Ideas", "Product Description", "Alt Text", "Ad Creative", "Social Post"],
     acceptsImage: true,
     prompt: (p, tone, kw) =>
-      `Analyze the uploaded image and create ${p} for ${kw}. Tone: ${tone}. Describe what is visible, infer the likely product or context, and write polished copy the user can publish or adapt immediately.`,
+      `Analyze the uploaded image and create ${p} for ${kw}. Tone: ${tone}. Describe what is visible, infer the likely product or context, and write polished copy the user can publish or adapt immediately. Don't include emojis`,
   },
   {
     id: "seo",
@@ -218,7 +218,7 @@ const TOOLS: Tool[] = [
     desc: "Search-friendly outlines and copy",
     platforms: ["Blog Outline", "Meta Title", "Meta Description", "Keyword Brief", "FAQ Section"],
     prompt: (p, tone, kw) =>
-      `Create ${p} content for the ${kw} niche. Tone: ${tone}. Make it search-friendly, clear, and useful. Include concise recommendations and practical copy the user can publish or adapt immediately.`,
+      `Create ${p} content for the ${kw} niche. Tone: ${tone}. Make it search-friendly, clear, and useful. Include concise recommendations and practical copy the user can publish or adapt immediately.Don't include emojis`,
   },
 ];
 
