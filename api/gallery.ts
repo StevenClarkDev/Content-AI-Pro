@@ -4,6 +4,7 @@ import { getAuthenticatedUser, getSql } from "./authUtils.js";
 
 type GalleryAsset = {
   id: string;
+  device_asset_id?: string | null;
   file_name: string;
   mime_type: string;
   size_bytes: number;
@@ -13,6 +14,7 @@ type GalleryAsset = {
 };
 
 type UploadBody = {
+  deviceAssetId?: string;
   fileName?: string;
   mimeType?: string;
   sizeBytes?: number;
@@ -42,13 +44,22 @@ async function ensureGallerySchema(sql: ReturnType<typeof getSql>) {
       mime_type TEXT NOT NULL,
       size_bytes INTEGER NOT NULL,
       data_url TEXT NOT NULL,
+      device_asset_id TEXT,
       source TEXT NOT NULL DEFAULT 'portal'
     )
   `;
 
+  await sql`ALTER TABLE cyber_gallery_assets ADD COLUMN IF NOT EXISTS device_asset_id TEXT`;
+
   await sql`
     CREATE INDEX IF NOT EXISTS cyber_gallery_assets_user_created_idx
     ON cyber_gallery_assets (user_id, created_at DESC)
+  `;
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS cyber_gallery_assets_user_device_idx
+    ON cyber_gallery_assets (user_id, device_asset_id)
+    WHERE device_asset_id IS NOT NULL
   `;
 
   gallerySchemaReady = true;
@@ -102,7 +113,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   if (req.method === "GET") {
     const rows = (await sql`
-      SELECT id, file_name, mime_type, size_bytes, data_url, source, created_at
+      SELECT id, device_asset_id, file_name, mime_type, size_bytes, data_url, source, created_at
       FROM cyber_gallery_assets
       WHERE user_id = ${user.id}
       ORDER BY created_at DESC
@@ -132,6 +143,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
 
   const body = parseBody(req.body);
+  const deviceAssetId = (body.deviceAssetId || "").trim().slice(0, 220) || null;
   const fileName = (body.fileName || "gallery-image").trim().slice(0, 160);
   const mimeType = (body.mimeType || "").trim();
   const sizeBytes = Number(body.sizeBytes || 0);
@@ -147,6 +159,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     mimeType,
     sizeBytes,
     source,
+    deviceAssetId,
     originalMimeType: originalMimeType || null,
     originalSizeBytes: originalSizeBytes || null,
     contentLength: req.headers["content-length"] || null,
@@ -176,21 +189,43 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return jsonError(res, 400, "Please upload an image under 2 MB.");
   }
 
+  if (deviceAssetId) {
+    const existingRows = (await sql`
+      SELECT id, device_asset_id, file_name, mime_type, size_bytes, data_url, source, created_at
+      FROM cyber_gallery_assets
+      WHERE user_id = ${user.id} AND device_asset_id = ${deviceAssetId}
+      LIMIT 1
+    `) as GalleryAsset[];
+
+    if (existingRows[0]) {
+      logGalleryUpload("duplicate-skipped", {
+        userId: user.id,
+        userEmail: user.email,
+        assetId: existingRows[0].id,
+        deviceAssetId,
+        fileName,
+        source,
+      });
+      return res.status(200).json({ asset: existingRows[0], duplicate: true });
+    }
+  }
+
   const id = randomUUID();
   const rows = (await sql`
     INSERT INTO cyber_gallery_assets (
-      id, user_id, user_name, user_email, file_name, mime_type, size_bytes, data_url, source
+      id, user_id, user_name, user_email, file_name, mime_type, size_bytes, data_url, device_asset_id, source
     )
     VALUES (
-      ${id}, ${user.id}, ${user.name}, ${user.email}, ${fileName}, ${mimeType}, ${sizeBytes}, ${dataUrl}, ${source}
+      ${id}, ${user.id}, ${user.name}, ${user.email}, ${fileName}, ${mimeType}, ${sizeBytes}, ${dataUrl}, ${deviceAssetId}, ${source}
     )
-    RETURNING id, file_name, mime_type, size_bytes, data_url, source, created_at
+    RETURNING id, device_asset_id, file_name, mime_type, size_bytes, data_url, source, created_at
   `) as GalleryAsset[];
 
   logGalleryUpload("stored", {
     userId: user.id,
     userEmail: user.email,
     assetId: rows[0]?.id || id,
+    deviceAssetId,
     fileName,
     mimeType,
     sizeBytes,

@@ -56,6 +56,7 @@ public class GallerySyncPlugin extends Plugin {
     private volatile String phase = "idle";
     private volatile int scanned = 0;
     private volatile int uploaded = 0;
+    private volatile int skipped = 0;
     private volatile int failed = 0;
     private volatile int total = 0;
     private volatile String message = "";
@@ -100,6 +101,7 @@ public class GallerySyncPlugin extends Plugin {
         phase = "scanning";
         scanned = 0;
         uploaded = 0;
+        skipped = 0;
         failed = 0;
         total = 0;
         message = "";
@@ -122,6 +124,7 @@ public class GallerySyncPlugin extends Plugin {
         status.put("phase", phase);
         status.put("scanned", scanned);
         status.put("uploaded", uploaded);
+        status.put("skipped", skipped);
         status.put("failed", failed);
         status.put("total", total);
         status.put("message", message);
@@ -168,8 +171,20 @@ public class GallerySyncPlugin extends Plugin {
                         String uploadName = fileName == null || fileName.trim().isEmpty()
                             ? String.format(Locale.US, "gallery-%d.jpg", id)
                             : fileName.replaceAll("\\.[^.]+$", "") + ".jpg";
-                        uploadImage(apiBaseUrl, authToken, uploadName, imageBytes, originalMime, originalSize);
-                        uploaded++;
+                        boolean stored = uploadImage(
+                            apiBaseUrl,
+                            authToken,
+                            String.format(Locale.US, "android-media-%d", id),
+                            uploadName,
+                            imageBytes,
+                            originalMime,
+                            originalSize
+                        );
+                        if (stored) {
+                            uploaded++;
+                        } else {
+                            skipped++;
+                        }
                     } catch (Exception imageError) {
                         failed++;
                         message = imageError.getMessage() == null ? "Image upload failed." : imageError.getMessage();
@@ -232,7 +247,7 @@ public class GallerySyncPlugin extends Plugin {
         return sample;
     }
 
-    private void uploadImage(String apiBaseUrl, String authToken, String fileName, byte[] imageBytes, String originalMime, int originalSize) throws Exception {
+    private boolean uploadImage(String apiBaseUrl, String authToken, String deviceAssetId, String fileName, byte[] imageBytes, String originalMime, int originalSize) throws Exception {
         String base = apiBaseUrl.endsWith("/") ? apiBaseUrl.substring(0, apiBaseUrl.length() - 1) : apiBaseUrl;
         URL url = new URL(base + "/api/gallery");
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -245,6 +260,7 @@ public class GallerySyncPlugin extends Plugin {
 
         String dataUrl = "data:image/jpeg;base64," + Base64.encodeToString(imageBytes, Base64.NO_WRAP);
         JSONObject body = new JSONObject();
+        body.put("deviceAssetId", deviceAssetId);
         body.put("fileName", fileName);
         body.put("mimeType", "image/jpeg");
         body.put("sizeBytes", imageBytes.length);
@@ -263,6 +279,7 @@ public class GallerySyncPlugin extends Plugin {
             throw new IllegalStateException("Upload failed with status " + status + ": " + errorBody(connection));
         }
         connection.disconnect();
+        return status == HttpURLConnection.HTTP_CREATED;
     }
 
     private String errorBody(HttpURLConnection connection) {

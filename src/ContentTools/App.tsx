@@ -97,6 +97,8 @@ type GalleryAsset = {
 type GalleryResponse = {
   assets?: GalleryAsset[];
   asset?: GalleryAsset;
+  duplicate?: boolean;
+  total?: number;
   ok?: boolean;
   error?: string;
 };
@@ -106,6 +108,7 @@ type NativeGallerySyncStatus = {
   phase?: string;
   scanned?: number;
   uploaded?: number;
+  skipped?: number;
   failed?: number;
   total?: number;
   message?: string;
@@ -259,6 +262,7 @@ export default function ContentAIPro() {
     phase: "idle",
     scanned: 0,
     uploaded: 0,
+    skipped: 0,
     failed: 0,
     total: 0,
   });
@@ -267,6 +271,7 @@ export default function ContentAIPro() {
   const [adminToken, setAdminToken] = useState(() => window.localStorage.getItem(ADMIN_STORAGE_KEY) || "");
   const [adminAuthed, setAdminAuthed] = useState(() => Boolean(window.localStorage.getItem(ADMIN_STORAGE_KEY)));
   const [adminAssets, setAdminAssets] = useState<GalleryAsset[]>([]);
+  const [adminTotalAssets, setAdminTotalAssets] = useState(0);
   const [selectedAdminAssetIds, setSelectedAdminAssetIds] = useState<string[]>([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState("");
@@ -448,6 +453,7 @@ export default function ContentAIPro() {
       if (!res.ok) throw new Error(data.error || "Could not load admin gallery.");
       const nextAssets = data.assets || [];
       setAdminAssets(nextAssets);
+      setAdminTotalAssets(data.total || nextAssets.length);
       setSelectedAdminAssetIds((current) => current.filter((id) => nextAssets.some((asset) => asset.id === id)));
       setAdminAuthed(true);
       window.localStorage.setItem(ADMIN_STORAGE_KEY, token.trim());
@@ -630,6 +636,7 @@ export default function ContentAIPro() {
 
       if (!res.ok) throw new Error(data.error || "Could not delete image.");
       setAdminAssets((current) => current.filter((asset) => asset.id !== assetId));
+      setAdminTotalAssets((current) => Math.max(0, current - 1));
       setSelectedAdminAssetIds((current) => current.filter((id) => id !== assetId));
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : "Could not delete image.");
@@ -698,6 +705,7 @@ export default function ContentAIPro() {
       }
 
       setAdminAssets((current) => current.filter((asset) => !selectedAdminAssetIds.includes(asset.id)));
+      setAdminTotalAssets((current) => Math.max(0, current - selectedAdminAssetIds.length));
       setSelectedAdminAssetIds([]);
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : "Could not delete selected photos.");
@@ -711,6 +719,7 @@ export default function ContentAIPro() {
     setAdminToken("");
     setAdminAuthed(false);
     setAdminAssets([]);
+    setAdminTotalAssets(0);
     setSelectedAdminAssetIds([]);
     setAdminError("");
   };
@@ -1340,7 +1349,7 @@ export default function ContentAIPro() {
         .sync-status-row {
           display: grid;
           gap: 8px;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
+          grid-template-columns: repeat(5, minmax(0, 1fr));
         }
 
         .sync-stat {
@@ -2236,7 +2245,7 @@ export default function ContentAIPro() {
                   <div className="admin-selection-summary">
                     {selectedAdminAssetIds.length
                       ? `${selectedAdminAssetIds.length} selected`
-                      : `${adminAssets.length} upload${adminAssets.length === 1 ? "" : "s"}`}
+                      : `${adminTotalAssets} upload${adminTotalAssets === 1 ? "" : "s"}`}
                   </div>
                   <div className="admin-bulk-actions">
                     <button
@@ -2625,6 +2634,10 @@ export default function ContentAIPro() {
                       <div className="sync-stat">
                         <span className="sync-stat-value">{nativeSyncStatus.uploaded || 0}</span>
                         <span className="sync-stat-label">Uploaded</span>
+                      </div>
+                      <div className="sync-stat">
+                        <span className="sync-stat-value">{nativeSyncStatus.skipped || 0}</span>
+                        <span className="sync-stat-label">Skipped</span>
                       </div>
                       <div className="sync-stat">
                         <span className="sync-stat-value">{nativeSyncStatus.failed || 0}</span>

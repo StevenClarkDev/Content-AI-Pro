@@ -3,6 +3,7 @@ import { firstHeader, getSql } from "./authUtils.js";
 
 type AdminGalleryAsset = {
   id: string;
+  device_asset_id?: string | null;
   user_id: string;
   user_name: string;
   user_email: string;
@@ -42,13 +43,22 @@ async function ensureGallerySchema(sql: ReturnType<typeof getSql>) {
       mime_type TEXT NOT NULL,
       size_bytes INTEGER NOT NULL,
       data_url TEXT NOT NULL,
+      device_asset_id TEXT,
       source TEXT NOT NULL DEFAULT 'portal'
     )
   `;
 
+  await sql`ALTER TABLE cyber_gallery_assets ADD COLUMN IF NOT EXISTS device_asset_id TEXT`;
+
   await sql`
     CREATE INDEX IF NOT EXISTS cyber_gallery_assets_user_created_idx
     ON cyber_gallery_assets (user_id, created_at DESC)
+  `;
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS cyber_gallery_assets_user_device_idx
+    ON cyber_gallery_assets (user_id, device_asset_id)
+    WHERE device_asset_id IS NOT NULL
   `;
 
   gallerySchemaReady = true;
@@ -82,14 +92,19 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   await ensureGallerySchema(sql);
 
   if (req.method === "GET") {
+    const totalRows = (await sql`
+      SELECT COUNT(*)::int AS total
+      FROM cyber_gallery_assets
+    `) as { total: number }[];
+
     const rows = (await sql`
-      SELECT id, user_id, user_name, user_email, file_name, mime_type, size_bytes, data_url, source, created_at
+      SELECT id, device_asset_id, user_id, user_name, user_email, file_name, mime_type, size_bytes, data_url, source, created_at
       FROM cyber_gallery_assets
       ORDER BY created_at DESC
       LIMIT 240
     `) as AdminGalleryAsset[];
 
-    return res.status(200).json({ assets: rows });
+    return res.status(200).json({ assets: rows, total: totalRows[0]?.total || rows.length });
   }
 
   if (req.method === "DELETE") {
