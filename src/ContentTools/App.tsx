@@ -267,8 +267,11 @@ export default function ContentAIPro() {
   const [adminToken, setAdminToken] = useState(() => window.localStorage.getItem(ADMIN_STORAGE_KEY) || "");
   const [adminAuthed, setAdminAuthed] = useState(() => Boolean(window.localStorage.getItem(ADMIN_STORAGE_KEY)));
   const [adminAssets, setAdminAssets] = useState<GalleryAsset[]>([]);
+  const [selectedAdminAssetIds, setSelectedAdminAssetIds] = useState<string[]>([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState("");
+  const selectedAdminAssets = adminAssets.filter((asset) => selectedAdminAssetIds.includes(asset.id));
+  const allAdminAssetsSelected = adminAssets.length > 0 && selectedAdminAssetIds.length === adminAssets.length;
 
   useEffect(() => {
     const p = Array.from({ length: 18 }, (_, i) => ({
@@ -443,7 +446,9 @@ export default function ContentAIPro() {
       });
 
       if (!res.ok) throw new Error(data.error || "Could not load admin gallery.");
-      setAdminAssets(data.assets || []);
+      const nextAssets = data.assets || [];
+      setAdminAssets(nextAssets);
+      setSelectedAdminAssetIds((current) => current.filter((id) => nextAssets.some((asset) => asset.id === id)));
       setAdminAuthed(true);
       window.localStorage.setItem(ADMIN_STORAGE_KEY, token.trim());
     } catch (e) {
@@ -625,8 +630,79 @@ export default function ContentAIPro() {
 
       if (!res.ok) throw new Error(data.error || "Could not delete image.");
       setAdminAssets((current) => current.filter((asset) => asset.id !== assetId));
+      setSelectedAdminAssetIds((current) => current.filter((id) => id !== assetId));
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : "Could not delete image.");
+    }
+  };
+
+  const toggleAdminAssetSelection = (assetId: string) => {
+    setSelectedAdminAssetIds((current) =>
+      current.includes(assetId) ? current.filter((id) => id !== assetId) : [...current, assetId]
+    );
+  };
+
+  const toggleAllAdminAssets = () => {
+    setSelectedAdminAssetIds(allAdminAssetsSelected ? [] : adminAssets.map((asset) => asset.id));
+  };
+
+  const safeDownloadName = (asset: GalleryAsset) => {
+    const fallbackExtension = asset.mime_type.split("/")[1] || "jpg";
+    const name = asset.file_name.trim() || `gallery-upload.${fallbackExtension}`;
+    const blockedCharacters = new Set(["<", ">", ":", "\"", "/", "\\", "|", "?", "*"]);
+    return Array.from(name)
+      .map((char) => (blockedCharacters.has(char) || char.charCodeAt(0) < 32 ? "_" : char))
+      .join("");
+  };
+
+  const downloadAdminAssets = (assets: GalleryAsset[]) => {
+    if (!assets.length) return;
+
+    assets.forEach((asset, index) => {
+      window.setTimeout(() => {
+        const link = document.createElement("a");
+        link.href = asset.data_url;
+        link.download = safeDownloadName(asset);
+        link.rel = "noopener";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }, index * 120);
+    });
+  };
+
+  const deleteSelectedAdminAssets = async () => {
+    if (!adminToken || selectedAdminAssetIds.length === 0) return;
+    const count = selectedAdminAssetIds.length;
+    const confirmed = window.confirm(`Delete ${count} selected photo${count === 1 ? "" : "s"}?`);
+    if (!confirmed) return;
+
+    setAdminLoading(true);
+    setAdminError("");
+
+    try {
+      const failedIds: string[] = [];
+      for (const assetId of selectedAdminAssetIds) {
+        const { res, data } = await apiFetch<GalleryResponse>(`/api/adminGallery?id=${encodeURIComponent(assetId)}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${adminToken.trim()}` },
+        });
+        if (!res.ok) {
+          failedIds.push(assetId);
+          console.error(data.error || "Could not delete image.");
+        }
+      }
+
+      if (failedIds.length) {
+        throw new Error(`Could not delete ${failedIds.length} selected photo${failedIds.length === 1 ? "" : "s"}.`);
+      }
+
+      setAdminAssets((current) => current.filter((asset) => !selectedAdminAssetIds.includes(asset.id)));
+      setSelectedAdminAssetIds([]);
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "Could not delete selected photos.");
+    } finally {
+      setAdminLoading(false);
     }
   };
 
@@ -635,6 +711,7 @@ export default function ContentAIPro() {
     setAdminToken("");
     setAdminAuthed(false);
     setAdminAssets([]);
+    setSelectedAdminAssetIds([]);
     setAdminError("");
   };
 
@@ -984,6 +1061,34 @@ export default function ContentAIPro() {
           min-width: 0;
         }
 
+        .mobile-quick-actions {
+          display: none;
+        }
+
+        .mobile-icon-btn {
+          align-items: center;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          color: var(--text);
+          cursor: pointer;
+          display: inline-flex;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 15px;
+          font-weight: 800;
+          height: 42px;
+          justify-content: center;
+          line-height: 1;
+          min-width: 42px;
+          padding: 0;
+          transition: all 0.2s;
+        }
+
+        .mobile-icon-btn:hover {
+          border-color: var(--gold);
+          color: var(--gold);
+        }
+
         .burger-lines {
           display: inline-flex;
           flex-direction: column;
@@ -1154,6 +1259,12 @@ export default function ContentAIPro() {
           color: var(--gold);
         }
 
+        .gallery-refresh-btn:disabled,
+        .gallery-delete-btn:disabled {
+          cursor: not-allowed;
+          opacity: 0.45;
+        }
+
         .gallery-grid {
           display: grid;
           gap: 14px;
@@ -1306,6 +1417,23 @@ export default function ContentAIPro() {
           margin-top: 20px;
         }
 
+        .admin-selection-summary {
+          color: var(--muted);
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .admin-bulk-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          justify-content: flex-end;
+        }
+
+        .admin-bulk-delete {
+          background: rgba(248,113,113,0.08);
+        }
+
         .admin-grid {
           display: grid;
           gap: 16px;
@@ -1317,6 +1445,38 @@ export default function ContentAIPro() {
           border: 1px solid var(--border);
           border-radius: 14px;
           overflow: hidden;
+          position: relative;
+          transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .admin-card.selected {
+          border-color: rgba(239,129,55,0.85);
+          box-shadow: 0 0 0 2px rgba(239,129,55,0.18);
+        }
+
+        .admin-select-control {
+          align-items: center;
+          background: rgba(7,10,18,0.84);
+          border: 1px solid rgba(255,255,255,0.14);
+          border-radius: 999px;
+          color: #fff;
+          cursor: pointer;
+          display: flex;
+          font-size: 12px;
+          font-weight: 800;
+          gap: 7px;
+          left: 10px;
+          padding: 7px 10px;
+          position: absolute;
+          top: 10px;
+          z-index: 2;
+        }
+
+        .admin-select-control input {
+          accent-color: var(--gold);
+          height: 15px;
+          margin: 0;
+          width: 15px;
         }
 
         .admin-card img {
@@ -1339,6 +1499,10 @@ export default function ContentAIPro() {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+        }
+
+        .admin-download-btn {
+          text-align: center;
         }
 
         /* Center content */
@@ -1817,10 +1981,12 @@ export default function ContentAIPro() {
           }
 
           .header-right {
-            flex: 0 0 auto;
-            flex-wrap: wrap;
+            display: grid;
+            flex: 1 1 100%;
+            grid-template-columns: minmax(0, 1fr) auto;
             gap: 8px;
-            justify-content: flex-end;
+            justify-content: stretch;
+            width: 100%;
           }
 
           .header-right > .account-chip,
@@ -1831,7 +1997,18 @@ export default function ContentAIPro() {
 
           .mobile-menu-toggle {
             display: inline-flex;
-            max-width: 190px;
+            max-width: none;
+          }
+
+          .mobile-quick-actions {
+            display: inline-flex;
+            gap: 6px;
+            justify-content: flex-end;
+          }
+
+          .mobile-icon-btn {
+            height: 42px;
+            min-width: 42px;
           }
 
           .history-btn, .theme-btn {
@@ -1894,21 +2071,6 @@ export default function ContentAIPro() {
             padding: 12px;
           }
 
-          .mobile-menu-actions {
-            display: grid;
-            gap: 8px;
-            grid-template-columns: 1fr 1fr;
-          }
-
-          .mobile-menu-actions .history-btn,
-          .mobile-menu-actions .theme-btn {
-            width: 100%;
-          }
-
-          .mobile-menu-actions .signout-action {
-            grid-column: 1 / -1;
-          }
-
           .center {
             padding: 18px 16px 24px;
           }
@@ -1966,6 +2128,17 @@ export default function ContentAIPro() {
 
           .gallery-upload-btn,
           .gallery-refresh-btn {
+            width: 100%;
+          }
+
+          .admin-bulk-actions {
+            display: grid;
+            grid-template-columns: 1fr;
+            justify-content: stretch;
+            width: 100%;
+          }
+
+          .admin-bulk-actions button {
             width: 100%;
           }
 
@@ -2060,13 +2233,45 @@ export default function ContentAIPro() {
             ) : (
               <>
                 <div className="gallery-toolbar">
-                  <button
-                    className="gallery-refresh-btn"
-                    type="button"
-                    onClick={() => loadAdminGallery(adminToken)}
-                  >
-                    {adminLoading ? "Refreshing..." : "Refresh Uploads"}
-                  </button>
+                  <div className="admin-selection-summary">
+                    {selectedAdminAssetIds.length
+                      ? `${selectedAdminAssetIds.length} selected`
+                      : `${adminAssets.length} upload${adminAssets.length === 1 ? "" : "s"}`}
+                  </div>
+                  <div className="admin-bulk-actions">
+                    <button
+                      className="gallery-refresh-btn"
+                      type="button"
+                      onClick={toggleAllAdminAssets}
+                      disabled={adminAssets.length === 0}
+                    >
+                      {allAdminAssetsSelected ? "Clear Selection" : "Select All"}
+                    </button>
+                    <button
+                      className="gallery-refresh-btn"
+                      type="button"
+                      onClick={() => downloadAdminAssets(selectedAdminAssets)}
+                      disabled={selectedAdminAssetIds.length === 0}
+                    >
+                      Download Selected
+                    </button>
+                    <button
+                      className="gallery-delete-btn admin-bulk-delete"
+                      type="button"
+                      onClick={deleteSelectedAdminAssets}
+                      disabled={adminLoading || selectedAdminAssetIds.length === 0}
+                    >
+                      Delete Selected
+                    </button>
+                    <button
+                      className="gallery-refresh-btn"
+                      type="button"
+                      onClick={() => loadAdminGallery(adminToken)}
+                      disabled={adminLoading}
+                    >
+                      {adminLoading ? "Refreshing..." : "Refresh Uploads"}
+                    </button>
+                  </div>
                 </div>
 
                 {adminError && <div className="error-msg">{adminError}</div>}
@@ -2078,7 +2283,18 @@ export default function ContentAIPro() {
                 ) : (
                   <div className="admin-grid">
                     {adminAssets.map((asset) => (
-                      <div className="admin-card" key={asset.id}>
+                      <div
+                        className={`admin-card ${selectedAdminAssetIds.includes(asset.id) ? "selected" : ""}`}
+                        key={asset.id}
+                      >
+                        <label className="admin-select-control">
+                          <input
+                            type="checkbox"
+                            checked={selectedAdminAssetIds.includes(asset.id)}
+                            onChange={() => toggleAdminAssetSelection(asset.id)}
+                          />
+                          Select
+                        </label>
                         <img src={asset.data_url} alt={asset.file_name} />
                         <div className="admin-card-meta">
                           <div className="admin-user-line">
@@ -2095,6 +2311,13 @@ export default function ContentAIPro() {
                             onClick={() => deleteAdminAsset(asset.id)}
                           >
                             Delete Upload
+                          </button>
+                          <button
+                            className="gallery-refresh-btn admin-download-btn"
+                            type="button"
+                            onClick={() => downloadAdminAssets([asset])}
+                          >
+                            Download
                           </button>
                         </div>
                       </div>
@@ -2259,6 +2482,35 @@ export default function ContentAIPro() {
                 </span>
                 <span className="mobile-menu-name">{authSession.user.name || "Profile"}</span>
               </button>
+              <div className="mobile-quick-actions" aria-label="Quick actions">
+                <button
+                  className="mobile-icon-btn"
+                  type="button"
+                  onClick={() => setIsLightMode((current) => !current)}
+                  aria-label={isLightMode ? "Switch to dark mode" : "Switch to light mode"}
+                  title={isLightMode ? "Dark mode" : "Light mode"}
+                >
+                  {isLightMode ? "☾" : "☀"}
+                </button>
+                <button
+                  className="mobile-icon-btn"
+                  type="button"
+                  onClick={() => setShowHistory(true)}
+                  aria-label={`Open history, ${history.length} items`}
+                  title={`History (${history.length})`}
+                >
+                  ◷
+                </button>
+                <button
+                  className="mobile-icon-btn"
+                  type="button"
+                  onClick={signOut}
+                  aria-label="Sign out"
+                  title="Sign out"
+                >
+                  ⇥
+                </button>
+              </div>
               <div className="account-chip">
                 <span className="account-name">{authSession.user.name}</span>
                 <button className="history-btn" type="button" onClick={signOut}>
@@ -2300,28 +2552,6 @@ export default function ContentAIPro() {
                     </div>
                   </button>
                 ))}
-              </div>
-              <div className="mobile-menu-actions">
-                <button
-                  className="theme-btn"
-                  onClick={() => setIsLightMode((current) => !current)}
-                  type="button"
-                >
-                  {isLightMode ? "Dark Mode" : "Light Mode"}
-                </button>
-                <button
-                  className="history-btn"
-                  type="button"
-                  onClick={() => {
-                    setShowMobileMenu(false);
-                    setShowHistory(true);
-                  }}
-                >
-                  History ({history.length})
-                </button>
-                <button className="history-btn signout-action" type="button" onClick={signOut}>
-                  Sign Out
-                </button>
               </div>
             </div>
           </header>

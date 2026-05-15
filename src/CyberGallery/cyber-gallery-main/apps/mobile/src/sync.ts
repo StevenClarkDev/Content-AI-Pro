@@ -14,7 +14,7 @@ import type { DiffResponse, DiffItem } from '@cg/shared';
 
 const SYNCED_INDEX_KEY = 'cg.syncedIndex'; // map<deviceAssetId, checksum>
 const SEEN_INDEX_KEY = 'cg.seenIndex';     // last seen ids (for delete detection)
-const DIFF_BATCH = 100;
+const DIFF_BATCH = 10000;
 const UPLOAD_CONCURRENCY = 3;
 
 type Index = Record<string, string>;
