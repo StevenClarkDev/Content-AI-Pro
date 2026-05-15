@@ -68,14 +68,13 @@ function toLocalAsset(p: PhotoIdentifier): LocalAsset | null {
   };
 }
 
-export async function* enumerateGallery(pageSize = 200): AsyncGenerator<LocalAsset[]> {
+export async function* enumerateGallery(pageSize = 2000): AsyncGenerator<LocalAsset[]> {
   let after: string | undefined;
   while (true) {
     const page = await CameraRoll.getPhotos({
       first: pageSize,
       after,
       assetType: 'Photos',
-      assetType: 'All',
       include: ['filename', 'fileSize', 'imageSize', 'playableDuration'],
     });
     const batch = page.edges
