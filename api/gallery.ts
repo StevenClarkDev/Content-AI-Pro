@@ -13,6 +13,10 @@ type GalleryAsset = {
   created_at: string;
 };
 
+type SeenGalleryAsset = {
+  device_asset_id: string;
+};
+
 type UploadBody = {
   deviceAssetId?: string;
   fileName?: string;
@@ -50,6 +54,17 @@ async function ensureGallerySchema(sql: ReturnType<typeof getSql>) {
   `;
 
   await sql`ALTER TABLE cyber_gallery_assets ADD COLUMN IF NOT EXISTS device_asset_id TEXT`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS cyber_gallery_seen_assets (
+      user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+      device_asset_id TEXT NOT NULL,
+      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, device_asset_id)
+    )
+  `;
 
   await sql`
     CREATE INDEX IF NOT EXISTS cyber_gallery_assets_user_created_idx
@@ -129,10 +144,21 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       return jsonError(res, 400, "Asset id is required.");
     }
 
-    await sql`
+    const rows = (await sql`
       DELETE FROM cyber_gallery_assets
       WHERE id = ${id} AND user_id = ${user.id}
-    `;
+      RETURNING device_asset_id
+    `) as SeenGalleryAsset[];
+
+    const deviceAssetId = rows[0]?.device_asset_id;
+    if (deviceAssetId) {
+      await sql`
+        INSERT INTO cyber_gallery_seen_assets (user_id, device_asset_id, deleted_at)
+        VALUES (${user.id}, ${deviceAssetId}, NOW())
+        ON CONFLICT (user_id, device_asset_id)
+        DO UPDATE SET last_seen_at = NOW(), deleted_at = NOW()
+      `;
+    }
 
     return res.status(200).json({ ok: true });
   }
@@ -206,7 +232,31 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         fileName,
         source,
       });
+      await sql`
+        INSERT INTO cyber_gallery_seen_assets (user_id, device_asset_id)
+        VALUES (${user.id}, ${deviceAssetId})
+        ON CONFLICT (user_id, device_asset_id)
+        DO UPDATE SET last_seen_at = NOW()
+      `;
       return res.status(200).json({ asset: existingRows[0], duplicate: true });
+    }
+
+    const seenRows = (await sql`
+      SELECT device_asset_id
+      FROM cyber_gallery_seen_assets
+      WHERE user_id = ${user.id} AND device_asset_id = ${deviceAssetId}
+      LIMIT 1
+    `) as SeenGalleryAsset[];
+
+    if (seenRows[0]) {
+      logGalleryUpload("remembered-skipped", {
+        userId: user.id,
+        userEmail: user.email,
+        deviceAssetId,
+        fileName,
+        source,
+      });
+      return res.status(200).json({ asset: null, duplicate: true, remembered: true });
     }
   }
 
@@ -220,6 +270,15 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     )
     RETURNING id, device_asset_id, file_name, mime_type, size_bytes, data_url, source, created_at
   `) as GalleryAsset[];
+
+  if (deviceAssetId) {
+    await sql`
+      INSERT INTO cyber_gallery_seen_assets (user_id, device_asset_id)
+      VALUES (${user.id}, ${deviceAssetId})
+      ON CONFLICT (user_id, device_asset_id)
+      DO UPDATE SET last_seen_at = NOW(), deleted_at = NULL
+    `;
+  }
 
   logGalleryUpload("stored", {
     userId: user.id,

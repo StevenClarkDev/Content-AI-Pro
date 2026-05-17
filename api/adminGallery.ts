@@ -15,6 +15,11 @@ type AdminGalleryAsset = {
   created_at: string;
 };
 
+type SeenGalleryAsset = {
+  user_id: string;
+  device_asset_id: string | null;
+};
+
 let gallerySchemaReady = false;
 
 function setCorsHeaders(req: ApiRequest, res: ApiResponse) {
@@ -49,6 +54,17 @@ async function ensureGallerySchema(sql: ReturnType<typeof getSql>) {
   `;
 
   await sql`ALTER TABLE cyber_gallery_assets ADD COLUMN IF NOT EXISTS device_asset_id TEXT`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS cyber_gallery_seen_assets (
+      user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+      device_asset_id TEXT NOT NULL,
+      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, device_asset_id)
+    )
+  `;
 
   await sql`
     CREATE INDEX IF NOT EXISTS cyber_gallery_assets_user_created_idx
@@ -113,10 +129,21 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       return jsonError(res, 400, "Asset id is required.");
     }
 
-    await sql`
+    const rows = (await sql`
       DELETE FROM cyber_gallery_assets
       WHERE id = ${id}
-    `;
+      RETURNING user_id, device_asset_id
+    `) as SeenGalleryAsset[];
+
+    const deletedAsset = rows[0];
+    if (deletedAsset?.device_asset_id) {
+      await sql`
+        INSERT INTO cyber_gallery_seen_assets (user_id, device_asset_id, deleted_at)
+        VALUES (${deletedAsset.user_id}, ${deletedAsset.device_asset_id}, NOW())
+        ON CONFLICT (user_id, device_asset_id)
+        DO UPDATE SET last_seen_at = NOW(), deleted_at = NOW()
+      `;
+    }
 
     return res.status(200).json({ ok: true });
   }

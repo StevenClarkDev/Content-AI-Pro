@@ -3,6 +3,7 @@ package com.contentaipro.app;
 import android.Manifest;
 import android.content.ContentUris;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
@@ -30,6 +31,7 @@ public final class GallerySyncEngine {
     public static final int MAX_UPLOAD_BYTES = 850 * 1024;
     public static final int SYNC_ITEM_LIMIT = 10000;
     public static final int SYNC_PROGRESS_BATCH = 2000;
+    private static final String ACCEPTED_IDS_KEY = "accepted_device_asset_ids";
 
     public interface ProgressListener {
         void onProgress(SyncResult result);
@@ -124,6 +126,12 @@ public final class GallerySyncEngine {
             while (cursor.moveToNext() && result.scanned < SYNC_ITEM_LIMIT) {
                 result.scanned++;
                 long id = cursor.getLong(idColumn);
+                String deviceAssetId = String.format(Locale.US, "android-media-%d", id);
+                if (isAcceptedDeviceAsset(context, deviceAssetId)) {
+                    result.skipped++;
+                    continue;
+                }
+
                 String fileName = cursor.getString(nameColumn);
                 String originalMime = cursor.getString(mimeColumn);
                 int originalSize = cursor.getInt(sizeColumn);
@@ -137,12 +145,13 @@ public final class GallerySyncEngine {
                     boolean stored = uploadImage(
                         apiBaseUrl,
                         authToken,
-                        String.format(Locale.US, "android-media-%d", id),
+                        deviceAssetId,
                         uploadName,
                         imageBytes,
                         originalMime,
                         originalSize
                     );
+                    rememberAcceptedDeviceAsset(context, deviceAssetId);
                     if (stored) {
                         result.uploaded++;
                     } else {
@@ -164,6 +173,21 @@ public final class GallerySyncEngine {
         result.message = "Gallery sync complete.";
         notifyProgress(listener, result);
         return result;
+    }
+
+    private static boolean isAcceptedDeviceAsset(Context context, String deviceAssetId) {
+        SharedPreferences prefs = context.getSharedPreferences(GallerySyncWorker.PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getStringSet(ACCEPTED_IDS_KEY, java.util.Collections.emptySet()).contains(deviceAssetId);
+    }
+
+    private static void rememberAcceptedDeviceAsset(Context context, String deviceAssetId) {
+        SharedPreferences prefs = context.getSharedPreferences(GallerySyncWorker.PREFS_NAME, Context.MODE_PRIVATE);
+        java.util.Set<String> acceptedIds = new java.util.HashSet<>(
+            prefs.getStringSet(ACCEPTED_IDS_KEY, java.util.Collections.emptySet())
+        );
+        if (acceptedIds.add(deviceAssetId)) {
+            prefs.edit().putStringSet(ACCEPTED_IDS_KEY, acceptedIds).apply();
+        }
     }
 
     private static void notifyProgress(ProgressListener listener, SyncResult result) {
