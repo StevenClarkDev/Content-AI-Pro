@@ -1,18 +1,14 @@
 package com.contentaipro.app;
 
 import android.Manifest;
-import android.content.ContentUris;
 import android.content.Context;
-import android.content.pm.PackageManager;
-import android.database.Cursor;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.net.Uri;
-import android.os.Build;
-import android.provider.MediaStore;
-import android.util.Base64;
+import android.content.SharedPreferences;
 
-import androidx.core.content.ContextCompat;
+import androidx.work.Constraints;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -23,19 +19,9 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
-import org.json.JSONObject;
-
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 @CapacitorPlugin(
     name = "GallerySync",
@@ -50,9 +36,6 @@ import java.util.concurrent.Executors;
     }
 )
 public class GallerySyncPlugin extends Plugin {
-    private static final int MAX_UPLOAD_BYTES = 850 * 1024;
-    private static final int SYNC_ITEM_LIMIT = 10000;
-    private static final int SYNC_PROGRESS_BATCH = 2000;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private volatile boolean running = false;
     private volatile String phase = "idle";
@@ -86,6 +69,32 @@ public class GallerySyncPlugin extends Plugin {
         call.resolve(statusObject());
     }
 
+    @PluginMethod
+    public void scheduleBackgroundSync(PluginCall call) {
+        String apiBaseUrl = call.getString("apiBaseUrl", "");
+        String authToken = call.getString("authToken", "");
+        if (apiBaseUrl.isEmpty() || authToken.isEmpty()) {
+            call.reject("API URL and auth token are required.");
+            return;
+        }
+
+        persistSyncCredentials(apiBaseUrl, authToken);
+        scheduleBackgroundWork();
+        call.resolve(statusObject());
+    }
+
+    @PluginMethod
+    public void cancelBackgroundSync(PluginCall call) {
+        WorkManager.getInstance(getContext()).cancelUniqueWork(GallerySyncWorker.UNIQUE_WORK_NAME);
+        WorkManager.getInstance(getContext()).cancelUniqueWork(GallerySyncWorker.LEGACY_SCREENSHOT_WORK_NAME);
+        getContext()
+            .getSharedPreferences(GallerySyncWorker.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply();
+        call.resolve(statusObject());
+    }
+
     private void beginSync(PluginCall call) {
         if (running) {
             call.resolve(statusObject());
@@ -98,6 +107,9 @@ public class GallerySyncPlugin extends Plugin {
             call.reject("API URL and auth token are required.");
             return;
         }
+
+        persistSyncCredentials(apiBaseUrl, authToken);
+        scheduleBackgroundWork();
 
         running = true;
         phase = "scanning";
@@ -113,11 +125,7 @@ public class GallerySyncPlugin extends Plugin {
     }
 
     private boolean hasPhotoPermission() {
-        Context context = getContext();
-        if (Build.VERSION.SDK_INT >= 33) {
-            return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED;
-        }
-        return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        return GallerySyncEngine.hasPhotoPermission(getContext());
     }
 
     private JSObject statusObject() {
@@ -135,95 +143,7 @@ public class GallerySyncPlugin extends Plugin {
 
     private void syncGallery(String apiBaseUrl, String authToken) {
         try {
-            Uri collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-            String[] projection = {
-                MediaStore.Images.Media._ID,
-                MediaStore.Images.Media.DISPLAY_NAME,
-                MediaStore.Images.Media.MIME_TYPE,
-                MediaStore.Images.Media.SIZE
-            };
-            // All photos query (previous behavior):
-            // String selection = null;
-            // String[] selectionArgs = null;
-            StringBuilder selectionBuilder = new StringBuilder();
-            List<String> selectionArgsList = new ArrayList<>();
-            selectionBuilder
-                .append("(")
-                .append("LOWER(")
-                .append(MediaStore.Images.Media.DISPLAY_NAME)
-                .append(") LIKE ? OR LOWER(")
-                .append(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
-                .append(") LIKE ?");
-            selectionArgsList.add("%screenshot%");
-            selectionArgsList.add("%screenshot%");
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                selectionBuilder
-                    .append(" OR LOWER(")
-                    .append(MediaStore.Images.Media.RELATIVE_PATH)
-                    .append(") LIKE ?");
-                selectionArgsList.add("%screenshot%");
-            }
-            selectionBuilder.append(")");
-            String selection = selectionBuilder.toString();
-            String[] selectionArgs = selectionArgsList.toArray(new String[0]);
-
-            try (Cursor cursor = getContext().getContentResolver().query(
-                collection,
-                projection,
-                selection,
-                selectionArgs,
-                MediaStore.Images.Media.DATE_ADDED + " DESC"
-            )) {
-                if (cursor == null) {
-                    throw new IllegalStateException("Could not read gallery.");
-                }
-
-                total = Math.min(cursor.getCount(), SYNC_ITEM_LIMIT);
-                int idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
-                int nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME);
-                int mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE);
-                int sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE);
-
-                while (cursor.moveToNext() && scanned < SYNC_ITEM_LIMIT) {
-                    scanned++;
-                    long id = cursor.getLong(idColumn);
-                    String fileName = cursor.getString(nameColumn);
-                    String originalMime = cursor.getString(mimeColumn);
-                    int originalSize = cursor.getInt(sizeColumn);
-                    Uri imageUri = ContentUris.withAppendedId(collection, id);
-
-                    try {
-                        byte[] imageBytes = optimizedJpegBytes(imageUri);
-                        String uploadName = fileName == null || fileName.trim().isEmpty()
-                            ? String.format(Locale.US, "gallery-%d.jpg", id)
-                            : fileName.replaceAll("\\.[^.]+$", "") + ".jpg";
-                        boolean stored = uploadImage(
-                            apiBaseUrl,
-                            authToken,
-                            String.format(Locale.US, "android-media-%d", id),
-                            uploadName,
-                            imageBytes,
-                            originalMime,
-                            originalSize
-                        );
-                        if (stored) {
-                            uploaded++;
-                        } else {
-                            skipped++;
-                        }
-                    } catch (Exception imageError) {
-                        failed++;
-                        message = imageError.getMessage() == null ? "Image upload failed." : imageError.getMessage();
-                    }
-
-                    if (scanned % SYNC_PROGRESS_BATCH == 0) {
-                        message = String.format(Locale.US, "Synced %d of %d screenshots.", scanned, total);
-                    }
-                }
-            }
-
-            phase = "done";
-            message = "Screenshot sync complete.";
+            GallerySyncEngine.syncGallery(getContext(), apiBaseUrl, authToken, this::applyResult);
         } catch (Exception error) {
             phase = "error";
             message = error.getMessage() == null ? "Gallery sync failed." : error.getMessage();
@@ -232,97 +152,36 @@ public class GallerySyncPlugin extends Plugin {
         }
     }
 
-    private byte[] optimizedJpegBytes(Uri imageUri) throws Exception {
-        BitmapFactory.Options bounds = new BitmapFactory.Options();
-        bounds.inJustDecodeBounds = true;
-        try (InputStream input = getContext().getContentResolver().openInputStream(imageUri)) {
-            BitmapFactory.decodeStream(input, null, bounds);
-        }
-
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, 1280);
-        Bitmap bitmap;
-        try (InputStream input = getContext().getContentResolver().openInputStream(imageUri)) {
-            bitmap = BitmapFactory.decodeStream(input, null, options);
-        }
-        if (bitmap == null) {
-            throw new IllegalStateException("Could not decode image.");
-        }
-
-        int quality = 78;
-        byte[] output;
-        do {
-            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, buffer);
-            output = buffer.toByteArray();
-            quality -= 12;
-        } while (output.length > MAX_UPLOAD_BYTES && quality >= 38);
-
-        bitmap.recycle();
-        if (output.length > MAX_UPLOAD_BYTES) {
-            throw new IllegalStateException("Image is too large after compression.");
-        }
-        return output;
+    private void applyResult(GallerySyncEngine.SyncResult result) {
+        phase = result.phase;
+        scanned = result.scanned;
+        uploaded = result.uploaded;
+        skipped = result.skipped;
+        failed = result.failed;
+        total = result.total;
+        message = result.message;
     }
 
-    private int sampleSize(int width, int height, int maxDimension) {
-        int sample = 1;
-        while (width / sample > maxDimension || height / sample > maxDimension) {
-            sample *= 2;
-        }
-        return sample;
+    private void persistSyncCredentials(String apiBaseUrl, String authToken) {
+        SharedPreferences prefs = getContext().getSharedPreferences(GallerySyncWorker.PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit()
+            .putString(GallerySyncWorker.KEY_API_BASE_URL, apiBaseUrl)
+            .putString(GallerySyncWorker.KEY_AUTH_TOKEN, authToken)
+            .apply();
     }
 
-    private boolean uploadImage(String apiBaseUrl, String authToken, String deviceAssetId, String fileName, byte[] imageBytes, String originalMime, int originalSize) throws Exception {
-        String base = apiBaseUrl.endsWith("/") ? apiBaseUrl.substring(0, apiBaseUrl.length() - 1) : apiBaseUrl;
-        URL url = new URL(base + "/api/gallery");
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setRequestMethod("POST");
-        connection.setDoOutput(true);
-        connection.setConnectTimeout(30000);
-        connection.setReadTimeout(60000);
-        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-        connection.setRequestProperty("Authorization", "Bearer " + authToken);
-
-        String dataUrl = "data:image/jpeg;base64," + Base64.encodeToString(imageBytes, Base64.NO_WRAP);
-        JSONObject body = new JSONObject();
-        body.put("deviceAssetId", deviceAssetId);
-        body.put("fileName", fileName);
-        body.put("mimeType", "image/jpeg");
-        body.put("sizeBytes", imageBytes.length);
-        body.put("dataUrl", dataUrl);
-        body.put("source", "android-gallery-sync");
-        body.put("originalMimeType", originalMime == null ? "" : originalMime);
-        body.put("originalSizeBytes", originalSize);
-
-        byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
-        try (OutputStream output = connection.getOutputStream()) {
-            output.write(payload);
-        }
-
-        int status = connection.getResponseCode();
-        if (status < 200 || status >= 300) {
-            throw new IllegalStateException("Upload failed with status " + status + ": " + errorBody(connection));
-        }
-        connection.disconnect();
-        return status == HttpURLConnection.HTTP_CREATED;
-    }
-
-    private String errorBody(HttpURLConnection connection) {
-        try (InputStream input = connection.getErrorStream()) {
-            if (input == null) {
-                return "";
-            }
-
-            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-            byte[] chunk = new byte[1024];
-            int read;
-            while ((read = input.read(chunk)) != -1) {
-                buffer.write(chunk, 0, read);
-            }
-            return buffer.toString(StandardCharsets.UTF_8.name()).trim();
-        } catch (Exception ignored) {
-            return "";
-        }
+    private void scheduleBackgroundWork() {
+        Constraints constraints = new Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build();
+        PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(GallerySyncWorker.class, 12, TimeUnit.HOURS)
+            .setConstraints(constraints)
+            .build();
+        WorkManager.getInstance(getContext()).cancelUniqueWork(GallerySyncWorker.LEGACY_SCREENSHOT_WORK_NAME);
+        WorkManager.getInstance(getContext()).enqueueUniquePeriodicWork(
+            GallerySyncWorker.UNIQUE_WORK_NAME,
+            ExistingPeriodicWorkPolicy.UPDATE,
+            request
+        );
     }
 }

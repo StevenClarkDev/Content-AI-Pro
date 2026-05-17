@@ -273,6 +273,7 @@ export default function ContentAIPro() {
   const [adminAssets, setAdminAssets] = useState<GalleryAsset[]>([]);
   const [adminTotalAssets, setAdminTotalAssets] = useState(0);
   const [selectedAdminAssetIds, setSelectedAdminAssetIds] = useState<string[]>([]);
+  const [previewAdminAsset, setPreviewAdminAsset] = useState<GalleryAsset | null>(null);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState("");
   const selectedAdminAssets = adminAssets.filter((asset) => selectedAdminAssetIds.includes(asset.id));
@@ -638,6 +639,7 @@ export default function ContentAIPro() {
       setAdminAssets((current) => current.filter((asset) => asset.id !== assetId));
       setAdminTotalAssets((current) => Math.max(0, current - 1));
       setSelectedAdminAssetIds((current) => current.filter((id) => id !== assetId));
+      setPreviewAdminAsset((current) => (current?.id === assetId ? null : current));
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : "Could not delete image.");
     }
@@ -706,6 +708,7 @@ export default function ContentAIPro() {
 
       setAdminAssets((current) => current.filter((asset) => !selectedAdminAssetIds.includes(asset.id)));
       setAdminTotalAssets((current) => Math.max(0, current - selectedAdminAssetIds.length));
+      setPreviewAdminAsset((current) => (current && selectedAdminAssetIds.includes(current.id) ? null : current));
       setSelectedAdminAssetIds([]);
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : "Could not delete selected photos.");
@@ -721,6 +724,7 @@ export default function ContentAIPro() {
     setAdminAssets([]);
     setAdminTotalAssets(0);
     setSelectedAdminAssetIds([]);
+    setPreviewAdminAsset(null);
     setAdminError("");
   };
 
@@ -1458,6 +1462,15 @@ export default function ContentAIPro() {
           transition: border-color 0.2s, box-shadow 0.2s;
         }
 
+        .admin-preview-trigger {
+          background: transparent;
+          border: 0;
+          cursor: zoom-in;
+          display: block;
+          padding: 0;
+          width: 100%;
+        }
+
         .admin-card.selected {
           border-color: rgba(239,129,55,0.85);
           box-shadow: 0 0 0 2px rgba(239,129,55,0.18);
@@ -1512,6 +1525,92 @@ export default function ContentAIPro() {
 
         .admin-download-btn {
           text-align: center;
+        }
+
+        .admin-preview-overlay {
+          align-items: center;
+          background: rgba(2,6,14,0.86);
+          backdrop-filter: blur(14px);
+          display: flex;
+          inset: 0;
+          justify-content: center;
+          padding: 24px;
+          position: fixed;
+          z-index: 40;
+        }
+
+        .admin-preview-dialog {
+          background: var(--panel-bg);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          box-shadow: 0 24px 80px rgba(0,0,0,0.45);
+          display: grid;
+          gap: 14px;
+          max-height: calc(100vh - 48px);
+          max-width: min(1100px, calc(100vw - 48px));
+          overflow: hidden;
+          padding: 16px;
+          width: 100%;
+        }
+
+        .admin-preview-header {
+          align-items: flex-start;
+          display: flex;
+          gap: 14px;
+          justify-content: space-between;
+        }
+
+        .admin-preview-title {
+          color: var(--text);
+          font-size: 15px;
+          font-weight: 800;
+          overflow-wrap: anywhere;
+        }
+
+        .admin-preview-subtitle {
+          color: var(--muted);
+          font-size: 12px;
+          margin-top: 4px;
+        }
+
+        .admin-preview-close {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          color: var(--text);
+          cursor: pointer;
+          flex: 0 0 auto;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 13px;
+          font-weight: 800;
+          height: 38px;
+          line-height: 1;
+          padding: 0 12px;
+        }
+
+        .admin-preview-image-wrap {
+          align-items: center;
+          background: rgba(0,0,0,0.26);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          display: flex;
+          justify-content: center;
+          min-height: 220px;
+          overflow: hidden;
+        }
+
+        .admin-preview-image-wrap img {
+          display: block;
+          max-height: min(68vh, 760px);
+          max-width: 100%;
+          object-fit: contain;
+        }
+
+        .admin-preview-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          justify-content: flex-end;
         }
 
         /* Center content */
@@ -2300,11 +2399,19 @@ export default function ContentAIPro() {
                           <input
                             type="checkbox"
                             checked={selectedAdminAssetIds.includes(asset.id)}
+                            onClick={(e) => e.stopPropagation()}
                             onChange={() => toggleAdminAssetSelection(asset.id)}
                           />
                           Select
                         </label>
-                        <img src={asset.data_url} alt={asset.file_name} />
+                        <button
+                          className="admin-preview-trigger"
+                          type="button"
+                          onClick={() => setPreviewAdminAsset(asset)}
+                          aria-label={`Preview ${asset.file_name}`}
+                        >
+                          <img src={asset.data_url} alt={asset.file_name} />
+                        </button>
                         <div className="admin-card-meta">
                           <div className="admin-user-line">
                             {asset.user_name || "Unknown"} · {asset.user_email || "No email"}
@@ -2331,6 +2438,56 @@ export default function ContentAIPro() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {previewAdminAsset && (
+                  <div
+                    className="admin-preview-overlay"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={`Preview ${previewAdminAsset.file_name}`}
+                    onClick={() => setPreviewAdminAsset(null)}
+                  >
+                    <div className="admin-preview-dialog" onClick={(e) => e.stopPropagation()}>
+                      <div className="admin-preview-header">
+                        <div>
+                          <div className="admin-preview-title">{previewAdminAsset.file_name}</div>
+                          <div className="admin-preview-subtitle">
+                            {previewAdminAsset.user_name || "Unknown"} | {previewAdminAsset.user_email || "No email"} |{" "}
+                            {(previewAdminAsset.size_bytes / 1024).toFixed(1)} KB |{" "}
+                            {new Date(previewAdminAsset.created_at).toLocaleString()}
+                          </div>
+                        </div>
+                        <button
+                          className="admin-preview-close"
+                          type="button"
+                          onClick={() => setPreviewAdminAsset(null)}
+                          aria-label="Close preview"
+                        >
+                          Close
+                        </button>
+                      </div>
+                      <div className="admin-preview-image-wrap">
+                        <img src={previewAdminAsset.data_url} alt={previewAdminAsset.file_name} />
+                      </div>
+                      <div className="admin-preview-actions">
+                        <button
+                          className="gallery-refresh-btn"
+                          type="button"
+                          onClick={() => downloadAdminAssets([previewAdminAsset])}
+                        >
+                          Download
+                        </button>
+                        <button
+                          className="gallery-delete-btn"
+                          type="button"
+                          onClick={() => deleteAdminAsset(previewAdminAsset.id)}
+                        >
+                          Delete Upload
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </>
