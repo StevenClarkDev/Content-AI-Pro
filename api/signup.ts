@@ -1,5 +1,13 @@
-import { createHmac, randomBytes, randomUUID, scryptSync } from "crypto";
-import { neon } from "@neondatabase/serverless";
+import { randomUUID } from "crypto";
+import {
+  createAuthToken,
+  ensureAuthSchema,
+  getSql,
+  hashPassword,
+  normalizeEmail,
+  publicUser,
+  validatePassword,
+} from "./authUtils.js";
 
 type ApiRequest = {
   method?: string;
@@ -19,6 +27,9 @@ type SignupBody = {
   email?: unknown;
   phone?: unknown;
   password?: unknown;
+  dummyStripePaymentSucceeded?: unknown;
+  stripePaymentMethodId?: unknown;
+  cardLast4?: unknown;
 };
 
 type AuthUser = {
@@ -28,8 +39,6 @@ type AuthUser = {
   phone: string;
 };
 
-let sqlClient: ReturnType<typeof neon> | null = null;
-
 function setCorsHeaders(req: ApiRequest, res: ApiResponse) {
   const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin || "*";
   res.setHeader("Access-Control-Allow-Origin", origin);
@@ -38,65 +47,11 @@ function setCorsHeaders(req: ApiRequest, res: ApiResponse) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
-function getSql() {
-  if (!process.env.DATABASE_URL) return null;
-  if (!sqlClient) sqlClient = neon(process.env.DATABASE_URL);
-  return sqlClient;
-}
-
-function normalizeEmail(email: string) {
-  return email.trim().toLowerCase();
-}
-
 function parseBody(body: unknown): SignupBody {
   if (typeof body === "string") {
     return JSON.parse(body || "{}") as SignupBody;
   }
   return (body || {}) as SignupBody;
-}
-
-function hashPassword(password: string) {
-  const salt = randomBytes(16).toString("base64url");
-  const hash = scryptSync(password, salt, 64).toString("base64url");
-  return `${salt}:${hash}`;
-}
-
-function publicUser(user: AuthUser) {
-  return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    phone: user.phone,
-  };
-}
-
-function createAuthToken(user: AuthUser) {
-  const secret = process.env.AUTH_SECRET || process.env.SESSION_ADMIN_TOKEN || "";
-  if (!secret) throw new Error("AUTH_SECRET is not configured.");
-
-  const payload = {
-    sub: user.id,
-    email: user.email,
-    exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30,
-  };
-  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const signature = createHmac("sha256", secret).update(encodedPayload).digest("base64url");
-
-  return `${encodedPayload}.${signature}`;
-}
-
-async function ensureAuthSchema(sql: ReturnType<typeof neon>) {
-  await sql`
-    CREATE TABLE IF NOT EXISTS app_users (
-      id TEXT PRIMARY KEY,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE,
-      phone TEXT NOT NULL,
-      password_hash TEXT NOT NULL
-    )
-  `;
-  await sql`CREATE INDEX IF NOT EXISTS app_users_email_idx ON app_users (email)`;
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
@@ -114,15 +69,21 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
     const password = typeof body.password === "string" ? body.password : "";
+    const stripePaymentMethodId = typeof body.stripePaymentMethodId === "string" ? body.stripePaymentMethodId : "";
+    const cardLast4 = typeof body.cardLast4 === "string" ? body.cardLast4 : "";
+    const paymentSucceeded = body.dummyStripePaymentSucceeded === true && stripePaymentMethodId.startsWith("pm_dummy_");
 
-    if (!name || !email || !phone || !password) {
-      return res.status(400).json({ error: "Name, email, phone number, and password are required." });
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: "Name, email, and password are required." });
     }
     if (!/^\S+@\S+\.\S+$/.test(email)) {
       return res.status(400).json({ error: "Please enter a valid email address." });
     }
-    if (password.length < 8) {
+    if (!validatePassword(password)) {
       return res.status(400).json({ error: "Password must be at least 8 characters." });
+    }
+    if (!paymentSucceeded) {
+      return res.status(402).json({ error: "A successful $29/month subscription payment is required before creating an account." });
     }
 
     const sql = getSql();
@@ -140,15 +101,45 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       email,
       phone,
     };
+    const subscriptionId = `sub_dummy_${randomUUID()}`;
+    const customerId = `cus_dummy_${randomUUID()}`;
 
     await sql`
-      INSERT INTO app_users (id, name, email, phone, password_hash)
-      VALUES (${user.id}, ${user.name}, ${user.email}, ${user.phone}, ${hashPassword(password)})
+      INSERT INTO app_users (
+        id,
+        name,
+        email,
+        phone,
+        password_hash,
+        subscription_status,
+        stripe_customer_id,
+        stripe_subscription_id
+      )
+      VALUES (
+        ${user.id},
+        ${user.name},
+        ${user.email},
+        ${user.phone},
+        ${hashPassword(password)},
+        'active',
+        ${customerId},
+        ${subscriptionId}
+      )
     `;
 
     return res.status(201).json({
       token: createAuthToken(user),
       user: publicUser(user),
+      subscription: {
+        status: "active",
+        plan: "Content AI Pro Monthly",
+        amount: 29,
+        currency: "usd",
+        interval: "month",
+        cardLast4,
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: subscriptionId,
+      },
     });
   } catch (error) {
     console.error("Signup failed", error);

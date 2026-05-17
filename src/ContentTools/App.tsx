@@ -72,6 +72,7 @@ type AuthSession = {
 };
 
 type AuthMode = "signin" | "signup";
+type SignupStep = "account" | "subscription";
 
 type AuthResponse = {
   token?: string;
@@ -244,6 +245,7 @@ export default function ContentAIPro() {
   const [particles, setParticles] = useState<Particle[]>([]);
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>("signin");
+  const [signupStep, setSignupStep] = useState<SignupStep>("account");
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
@@ -251,8 +253,13 @@ export default function ContentAIPro() {
   const [authForm, setAuthForm] = useState({
     name: "",
     email: "",
-    phone: "",
     password: "",
+  });
+  const [paymentForm, setPaymentForm] = useState({
+    cardNumber: "",
+    expiry: "",
+    cvc: "",
+    nameOnCard: "",
   });
   const [galleryAssets, setGalleryAssets] = useState<GalleryAsset[]>([]);
   const [galleryLoading, setGalleryLoading] = useState(false);
@@ -741,13 +748,67 @@ export default function ContentAIPro() {
     }
 
     setAuthError("");
+
+    if (authMode === "signup" && signupStep === "account") {
+      const name = authForm.name.trim();
+      const email = authForm.email.trim();
+      const password = authForm.password;
+
+      if (!name || !email || !password) {
+        setAuthError("Name, email, and password are required.");
+        return;
+      }
+      if (!/^\S+@\S+\.\S+$/.test(email)) {
+        setAuthError("Please enter a valid email address.");
+        return;
+      }
+      if (password.length < 8) {
+        setAuthError("Password must be at least 8 characters.");
+        return;
+      }
+
+      setPaymentForm((current) => ({
+        ...current,
+        nameOnCard: current.nameOnCard || name,
+      }));
+      setSignupStep("subscription");
+      return;
+    }
+
     setAuthLoading(true);
 
     try {
       const endpoint = authMode === "signup" ? "signup" : "signin";
+      const cardDigits = paymentForm.cardNumber.replace(/\D/g, "");
+      const expiryValue = paymentForm.expiry.trim();
+      const cvcDigits = paymentForm.cvc.replace(/\D/g, "");
+
+      if (authMode === "signup") {
+        if (cardDigits.length < 12 || cardDigits.length > 19) {
+          throw new Error("Please enter a valid card number.");
+        }
+        if (!/^(0[1-9]|1[0-2])\/\d{2}$/.test(expiryValue)) {
+          throw new Error("Use MM/YY for the card expiry.");
+        }
+        if (cvcDigits.length < 3 || cvcDigits.length > 4) {
+          throw new Error("Please enter a valid CVC.");
+        }
+        if (!paymentForm.nameOnCard.trim()) {
+          throw new Error("Name on card is required.");
+        }
+        if (cardDigits.endsWith("0000")) {
+          throw new Error("Dummy Stripe declined this test card. Try 4242 4242 4242 4242.");
+        }
+      }
+
       const payload =
         authMode === "signup"
-          ? authForm
+          ? {
+              ...authForm,
+              dummyStripePaymentSucceeded: true,
+              stripePaymentMethodId: `pm_dummy_${Date.now()}`,
+              cardLast4: cardDigits.slice(-4),
+            }
           : {
               email: authForm.email,
               password: authForm.password,
@@ -765,7 +826,9 @@ export default function ContentAIPro() {
 
       const session = { token: data.token, user: data.user };
       setAuthSession(session);
-      setAuthForm({ name: "", email: "", phone: "", password: "" });
+      setAuthForm({ name: "", email: "", password: "" });
+      setPaymentForm({ cardNumber: "", expiry: "", cvc: "", nameOnCard: "" });
+      setSignupStep("account");
       window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
     } catch (e) {
       setAuthError(e instanceof Error ? e.message : "Authentication failed.");
@@ -984,6 +1047,54 @@ export default function ContentAIPro() {
           color: #f87171;
           font-size: 13px;
           padding: 10px 12px;
+        }
+
+        .subscription-summary {
+          background: var(--surface);
+          border: 1px solid rgba(239,129,55,0.32);
+          border-radius: 12px;
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          padding: 14px;
+        }
+
+        .subscription-plan {
+          color: var(--text);
+          font-size: 15px;
+          font-weight: 800;
+        }
+
+        .subscription-note {
+          color: var(--muted);
+          font-size: 13px;
+          line-height: 1.45;
+          margin-top: 4px;
+        }
+
+        .subscription-price {
+          color: var(--gold-light);
+          font-size: 22px;
+          font-weight: 900;
+          white-space: nowrap;
+        }
+
+        .payment-row {
+          display: grid;
+          grid-template-columns: 1fr 0.8fr;
+          gap: 10px;
+        }
+
+        .auth-secondary-button {
+          background: transparent;
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          color: var(--muted);
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 14px;
+          font-weight: 700;
+          padding: 12px;
         }
 
         .account-chip {
@@ -2507,13 +2618,21 @@ export default function ContentAIPro() {
                   alt="Content AI Pro"
                 />
               </div>
-              <div className="auth-title">{authMode === "signup" ? "Create Account" : "Welcome Back"}</div>
+              <div className="auth-title">
+                {authMode === "signup"
+                  ? signupStep === "subscription"
+                    ? "Start Subscription"
+                    : "Create Account"
+                  : "Welcome Back"}
+              </div>
               <div className="auth-subtitle">
                 {authChecking
                   ? "Checking your session..."
                   : IS_ANDROID_APP
                     ? "Sign in with the account you created on the Content AI Pro web portal."
-                    : "Sign in to use Content AI Pro across the web portal and Android app."}
+                    : authMode === "signup" && signupStep === "subscription"
+                      ? "Subscribe for $29/month. Your account is created only after payment succeeds."
+                      : "Sign in to use Content AI Pro across the web portal and Android app."}
               </div>
 
               {!authChecking && (
@@ -2524,6 +2643,7 @@ export default function ContentAIPro() {
                       type="button"
                       onClick={() => {
                         setAuthMode("signin");
+                        setSignupStep("account");
                         setAuthError("");
                       }}
                     >
@@ -2538,6 +2658,7 @@ export default function ContentAIPro() {
                           return;
                         }
                         setAuthError("");
+                        setSignupStep("account");
                         setAuthMode("signup");
                       }}
                     >
@@ -2552,7 +2673,7 @@ export default function ContentAIPro() {
                       handleAuthSubmit();
                     }}
                   >
-                    {authMode === "signup" && (
+                    {authMode === "signup" && signupStep === "account" && (
                       <>
                         <input
                           className="auth-input"
@@ -2560,32 +2681,92 @@ export default function ContentAIPro() {
                           value={authForm.name}
                           onChange={(e) => setAuthForm((current) => ({ ...current, name: e.target.value }))}
                         />
+                      </>
+                    )}
+                    {authMode === "signup" && signupStep === "subscription" ? (
+                      <>
+                        <div className="subscription-summary">
+                          <div>
+                            <div className="subscription-plan">Content AI Pro Monthly</div>
+                            <div className="subscription-note">Dummy Stripe checkout. No card details are stored in this app.</div>
+                          </div>
+                          <div className="subscription-price">$29/mo</div>
+                        </div>
                         <input
                           className="auth-input"
-                          placeholder="Phone Number"
-                          value={authForm.phone}
-                          onChange={(e) => setAuthForm((current) => ({ ...current, phone: e.target.value }))}
+                          placeholder="Card number"
+                          inputMode="numeric"
+                          autoComplete="cc-number"
+                          value={paymentForm.cardNumber}
+                          onChange={(e) => setPaymentForm((current) => ({ ...current, cardNumber: e.target.value }))}
+                        />
+                        <div className="payment-row">
+                          <input
+                            className="auth-input"
+                            placeholder="MM/YY"
+                            inputMode="numeric"
+                            autoComplete="cc-exp"
+                            value={paymentForm.expiry}
+                            onChange={(e) => setPaymentForm((current) => ({ ...current, expiry: e.target.value }))}
+                          />
+                          <input
+                            className="auth-input"
+                            placeholder="CVC"
+                            inputMode="numeric"
+                            autoComplete="cc-csc"
+                            value={paymentForm.cvc}
+                            onChange={(e) => setPaymentForm((current) => ({ ...current, cvc: e.target.value }))}
+                          />
+                        </div>
+                        <input
+                          className="auth-input"
+                          placeholder="Name on card"
+                          autoComplete="cc-name"
+                          value={paymentForm.nameOnCard}
+                          onChange={(e) => setPaymentForm((current) => ({ ...current, nameOnCard: e.target.value }))}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          className="auth-input"
+                          placeholder="Email"
+                          type="email"
+                          value={authForm.email}
+                          onChange={(e) => setAuthForm((current) => ({ ...current, email: e.target.value }))}
+                        />
+                        <input
+                          className="auth-input"
+                          placeholder="Password"
+                          type="password"
+                          value={authForm.password}
+                          onChange={(e) => setAuthForm((current) => ({ ...current, password: e.target.value }))}
                         />
                       </>
                     )}
-                    <input
-                      className="auth-input"
-                      placeholder="Email"
-                      type="email"
-                      value={authForm.email}
-                      onChange={(e) => setAuthForm((current) => ({ ...current, email: e.target.value }))}
-                    />
-                    <input
-                      className="auth-input"
-                      placeholder="Password"
-                      type="password"
-                      value={authForm.password}
-                      onChange={(e) => setAuthForm((current) => ({ ...current, password: e.target.value }))}
-                    />
                     {authError && <div className="auth-error">{authError}</div>}
                     <button className="auth-button" type="submit" disabled={authLoading}>
-                      {authLoading ? "Please wait..." : authMode === "signup" ? "Create Account" : "Sign In"}
+                      {authLoading
+                        ? "Please wait..."
+                        : authMode === "signup"
+                          ? signupStep === "subscription"
+                            ? "Subscribe & Create Account"
+                            : "Continue to Payment"
+                          : "Sign In"}
                     </button>
+                    {authMode === "signup" && signupStep === "subscription" && (
+                      <button
+                        className="auth-secondary-button"
+                        type="button"
+                        disabled={authLoading}
+                        onClick={() => {
+                          setAuthError("");
+                          setSignupStep("account");
+                        }}
+                      >
+                        Back to account details
+                      </button>
+                    )}
                   </form>
                 </>
               )}
